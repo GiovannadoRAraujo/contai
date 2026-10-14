@@ -9,7 +9,8 @@
 -- Requer PostgreSQL 15+ (usa ON DELETE SET NULL com lista de colunas).
 -- Todo projeto Supabase criado atualmente atende a esse requisito.
 --
--- NÃO aplicada em nenhum banco. Para revisão.
+-- Aplicada no projeto principal do contAI em 2026-10-14 (Supabase, Postgres 17.11),
+-- via `supabase db push`. Revisada antes da aplicação.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------

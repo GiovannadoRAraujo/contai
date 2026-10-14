@@ -14,7 +14,8 @@
 --   3. FK compostas  — a qual usuário cada vínculo pertence (migração 001)
 --   4. CHECK         — quais valores são aceitáveis         (migração 001)
 --
--- NÃO aplicada em nenhum banco. Para revisão.
+-- Aplicada no projeto principal do contAI em 2026-10-14 (Supabase, Postgres 17.11),
+-- via `supabase db push`. Revisada antes da aplicação.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------

@@ -27,7 +27,8 @@
 --    migração 001 já tornam impossível referenciar dado de outro usuário.
 --    O RLS aqui é a segunda camada, não a única.
 --
--- NÃO aplicada em nenhum banco. Para revisão.
+-- Aplicada no projeto principal do contAI em 2026-10-14 (Supabase, Postgres 17.11),
+-- via `supabase db push`. Revisada antes da aplicação.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------

@@ -11,6 +11,19 @@ npm run test:db
 Cada execução cria um banco novo do zero, aplica os três arquivos de
 `supabase/migrations/` na ordem dos nomes e roda os testes. Nada persiste.
 
+## Estado atual
+
+As três migrações **já estão aplicadas no projeto principal** (`contai`, Postgres
+17.11, região `sa-east-1`), desde 2026-10-14, via `supabase db push`.
+`supabase migration list --linked` mostra `local` == `remote` nas três.
+
+O projeto descartável usado na revisão foi apagado. Para validar migrações
+futuras antes de aplicar, recrie um e siga o roteiro do fim deste arquivo — a
+trava `conferir-alvo.mjs` continua barrando `db push` apontado ao principal.
+
+> No Windows com a execution policy padrão, chame `npx.cmd` em vez de `npx`:
+> o PowerShell recusa carregar o wrapper `npx.ps1`.
+
 ## O que o ambiente simula
 
 PGlite é Postgres puro: não conhece Supabase. O `harness.mjs` recria o mínimo
