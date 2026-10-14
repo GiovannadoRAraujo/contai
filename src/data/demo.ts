@@ -1,0 +1,187 @@
+import type { EstadoApp, Movimentacao, TipoMov } from '@/types';
+import { addMeses, uid } from '@/lib/format';
+
+/**
+ * Base de demonstração do contAI.
+ * Os dados são gerados em relação ao mês corrente para que vencimentos,
+ * alertas e comparativos mensais façam sentido em qualquer data.
+ * Nenhum dado bancário real é utilizado.
+ */
+
+const mesAtual = () => new Date().toISOString().slice(0, 7);
+const dia = (ym: string, d: number) => `${ym}-${String(d).padStart(2, '0')}`;
+const emDias = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+type L = [dia: number, tipo: TipoMov, descricao: string, valor: number, categoria: string, conta: string];
+
+const M0: L[] = [
+  [5, 'receita', 'Salário — Mensal', 5800.0, 'Salário', 'c1'],
+  [12, 'receita', 'Projeto freelance — landing page', 850.0, 'Freelance', 'c1'],
+  [1, 'receita', 'Rendimento conta remunerada', 200.0, 'Rendimentos', 'c1'],
+  [5, 'despesa', 'Aluguel do apartamento', 950.0, 'Moradia', 'c1'],
+  [5, 'despesa', 'Condomínio', 126.56, 'Moradia', 'c1'],
+  [9, 'despesa', 'Enel — conta de luz', 189.9, 'Moradia', 'c1'],
+  [3, 'despesa', 'Pão de Açúcar — compras do mês', 412.8, 'Alimentação', 'c4'],
+  [8, 'despesa', 'iFood', 139.7, 'Alimentação', 'c4'],
+  [11, 'despesa', 'Padaria Bella Vista', 59.89, 'Alimentação', 'c3'],
+  [14, 'despesa', 'Restaurante Nonna', 100.0, 'Alimentação', 'c4'],
+  [2, 'despesa', 'Posto Shell — combustível', 280.0, 'Transporte', 'c4'],
+  [7, 'despesa', 'Uber (6 corridas)', 154.92, 'Transporte', 'c4'],
+  [13, 'despesa', 'Estacionamento mensal', 40.0, 'Transporte', 'c3'],
+  [6, 'despesa', 'Cinema Cinemark', 78.0, 'Lazer', 'c4'],
+  [15, 'despesa', 'Ingresso show — Allianz', 220.0, 'Lazer', 'c5'],
+  [10, 'despesa', 'Bar do Juca', 97.77, 'Lazer', 'c3'],
+  [4, 'despesa', 'Drogasil', 126.62, 'Saúde', 'c4'],
+  [10, 'despesa', 'Unimed — coparticipação', 190.0, 'Saúde', 'c1'],
+  [6, 'despesa', 'Alura — assinatura anual (parcela)', 97.46, 'Educação', 'c5'],
+  [8, 'despesa', 'Curso de inglês', 140.0, 'Educação', 'c1'],
+  [15, 'despesa', 'Netflix', 44.9, 'Assinaturas', 'c4'],
+  [10, 'despesa', 'Spotify Premium', 21.9, 'Assinaturas', 'c4'],
+  [20, 'despesa', 'Vivo — internet e celular', 119.9, 'Serviços', 'c1'],
+  [12, 'despesa', 'Amazon — eletrônicos', 320.0, 'Compras', 'c5'],
+  [1, 'despesa', 'Tarifa de manutenção', 47.38, 'Impostos e taxas', 'c2'],
+];
+
+const M1: L[] = [
+  [5, 'receita', 'Salário — Mensal', 5800.0, 'Salário', 'c1'],
+  [14, 'receita', 'Freelance — consultoria', 420.0, 'Freelance', 'c1'],
+  [1, 'receita', 'Rendimento conta remunerada', 122.6, 'Rendimentos', 'c1'],
+  [5, 'despesa', 'Aluguel do apartamento', 950.0, 'Moradia', 'c1'],
+  [5, 'despesa', 'Condomínio', 126.56, 'Moradia', 'c1'],
+  [9, 'despesa', 'Enel — conta de luz', 204.3, 'Moradia', 'c1'],
+  [3, 'despesa', 'Carrefour — compras do mês', 520.4, 'Alimentação', 'c4'],
+  [11, 'despesa', 'iFood', 210.9, 'Alimentação', 'c4'],
+  [18, 'despesa', 'Restaurante — almoços', 280.0, 'Alimentação', 'c4'],
+  [7, 'despesa', 'Uber', 198.3, 'Transporte', 'c4'],
+  [2, 'despesa', 'Posto Ipiranga', 300.0, 'Transporte', 'c4'],
+  [4, 'despesa', 'Droga Raia', 88.7, 'Saúde', 'c4'],
+  [15, 'despesa', 'Netflix', 44.9, 'Assinaturas', 'c4'],
+  [10, 'despesa', 'Spotify Premium', 21.9, 'Assinaturas', 'c4'],
+  [20, 'despesa', 'Vivo — internet e celular', 119.9, 'Serviços', 'c1'],
+  [12, 'despesa', 'Amazon — casa e decoração', 410.0, 'Compras', 'c5'],
+  [6, 'despesa', 'Cinema', 96.0, 'Lazer', 'c4'],
+  [8, 'despesa', 'Curso de inglês', 140.0, 'Educação', 'c1'],
+  [1, 'despesa', 'Tarifa de manutenção', 47.38, 'Impostos e taxas', 'c2'],
+  [22, 'despesa', 'Magalu — presente', 406.76, 'Compras', 'c5'],
+];
+
+const M2: L[] = [
+  [5, 'receita', 'Salário — Mensal', 5800.0, 'Salário', 'c1'],
+  [14, 'receita', 'Freelance — design', 500.0, 'Freelance', 'c1'],
+  [1, 'receita', 'Rendimento conta remunerada', 120.0, 'Rendimentos', 'c1'],
+  [5, 'despesa', 'Aluguel do apartamento', 950.0, 'Moradia', 'c1'],
+  [5, 'despesa', 'Condomínio', 126.56, 'Moradia', 'c1'],
+  [9, 'despesa', 'Enel — conta de luz', 232.1, 'Moradia', 'c1'],
+  [3, 'despesa', 'Supermercado Assaí', 610.2, 'Alimentação', 'c4'],
+  [11, 'despesa', 'iFood', 265.4, 'Alimentação', 'c4'],
+  [7, 'despesa', 'Transporte — Uber e combustível', 420.0, 'Transporte', 'c4'],
+  [4, 'despesa', 'Consulta e exames', 310.0, 'Saúde', 'c1'],
+  [15, 'despesa', 'Assinaturas digitais', 66.8, 'Assinaturas', 'c4'],
+  [20, 'despesa', 'Vivo — internet e celular', 119.9, 'Serviços', 'c1'],
+  [12, 'despesa', 'Compras diversas', 980.3, 'Compras', 'c5'],
+  [6, 'despesa', 'Lazer e saídas', 540.0, 'Lazer', 'c4'],
+  [8, 'despesa', 'Curso de inglês', 140.0, 'Educação', 'c1'],
+  [24, 'despesa', 'Hotel — viagem de feriado', 301.36, 'Lazer', 'c5'],
+  [1, 'despesa', 'Tarifa de manutenção', 47.38, 'Impostos e taxas', 'c2'],
+];
+
+const M3: L[] = [
+  [5, 'receita', 'Salário — Mensal', 5800.0, 'Salário', 'c1'],
+  [14, 'receita', 'Freelance — manutenção de site', 300.0, 'Freelance', 'c1'],
+  [5, 'despesa', 'Aluguel do apartamento', 950.0, 'Moradia', 'c1'],
+  [5, 'despesa', 'Condomínio', 126.56, 'Moradia', 'c1'],
+  [9, 'despesa', 'Enel — conta de luz', 198.4, 'Moradia', 'c1'],
+  [3, 'despesa', 'Supermercado', 580.1, 'Alimentação', 'c4'],
+  [11, 'despesa', 'iFood', 188.9, 'Alimentação', 'c4'],
+  [7, 'despesa', 'Transporte', 390.0, 'Transporte', 'c4'],
+  [4, 'despesa', 'Dentista', 420.0, 'Saúde', 'c1'],
+  [15, 'despesa', 'Assinaturas digitais', 66.8, 'Assinaturas', 'c4'],
+  [20, 'despesa', 'Vivo — internet e celular', 119.9, 'Serviços', 'c1'],
+  [12, 'despesa', 'Compras de fim de ano', 1240.6, 'Compras', 'c5'],
+  [6, 'despesa', 'Lazer e saídas', 680.0, 'Lazer', 'c4'],
+  [8, 'despesa', 'Curso de inglês', 140.0, 'Educação', 'c1'],
+  [10, 'despesa', 'IPVA — parcela', 791.36, 'Impostos e taxas', 'c1'],
+  [1, 'despesa', 'Tarifa de manutenção', 47.38, 'Impostos e taxas', 'c2'],
+];
+
+function montar(linhas: L[], ym: string): Movimentacao[] {
+  return linhas.map(([d, tipo, descricao, valor, categoria, contaId]) => ({
+    id: uid(),
+    tipo,
+    descricao,
+    valor,
+    data: dia(ym, d),
+    categoria,
+    contaId,
+    origem: 'manual' as const,
+  }));
+}
+
+export function estadoDemo(nome = 'Ana Souza'): EstadoApp {
+  const atual = mesAtual();
+  const movimentacoes = [
+    ...montar(M0, atual),
+    ...montar(M1, addMeses(atual, -1)),
+    ...montar(M2, addMeses(atual, -2)),
+    ...montar(M3, addMeses(atual, -3)),
+  ].sort((a, b) => b.data.localeCompare(a.data));
+
+  return {
+    usuario: { nome, email: 'ana.souza@exemplo.com', consentimentoIA: true, ocultarValores: false },
+    autenticado: false,
+    contas: [
+      { id: 'c1', nome: 'Nubank', tipo: 'corrente', saldoInicial: 12455.9, cor: '#8B5CF6' },
+      { id: 'c2', nome: 'Itaú', tipo: 'corrente', saldoInicial: 6000.0, cor: '#FF9F43' },
+      { id: 'c3', nome: 'Carteira', tipo: 'carteira', saldoInicial: 2000.0, cor: '#2DE2A6' },
+      { id: 'c4', nome: 'Cartão Nubank', tipo: 'cartao', saldoInicial: 0, limite: 1800, cor: '#8B5CF6' },
+      { id: 'c5', nome: 'Cartão Itaú', tipo: 'cartao', saldoInicial: 0, limite: 3000, cor: '#FF9F43' },
+    ],
+    movimentacoes,
+    faturas: [
+      { id: 'f1', contaId: 'c4', emissor: 'Nubank', referencia: 'Fatura do cartão', valor: 1240.0, vencimento: emDias(11), status: 'pendente', cor: '#8B5CF6', sigla: 'nu', paginas: 3 },
+      { id: 'f2', contaId: 'c5', emissor: 'Itaú', referencia: 'Fatura do cartão', valor: 892.45, vencimento: emDias(4), status: 'pendente', cor: '#FF9F43', sigla: 'itaú', paginas: 2 },
+      { id: 'f3', emissor: 'Claro', referencia: 'Telefonia móvel', valor: 159.9, vencimento: emDias(6), status: 'em_analise', cor: '#F052A0', sigla: 'cla', paginas: 1 },
+      { id: 'f4', emissor: 'Enel', referencia: 'Conta de luz', valor: 189.9, vencimento: emDias(3), status: 'pendente', cor: '#FF9F43', sigla: 'en', paginas: 1 },
+      { id: 'f5', emissor: 'Amazon', referencia: 'Compra parcelada', valor: 320.0, vencimento: emDias(-3), status: 'paga', cor: '#27D9D0', sigla: 'a', paginas: 1 },
+      { id: 'f6', contaId: 'c5', emissor: 'Cartão Inter', referencia: 'Fatura do cartão', valor: 1080.5, vencimento: emDias(-8), status: 'paga', cor: '#FF9F43', sigla: 'inter', paginas: 4 },
+    ],
+    investimentos: [
+      { id: 'i1', nome: 'Tesouro Selic 2029', modalidade: 'Tesouro Direto', valorInvestido: 5000, rentabilidade: 8.24, atualizadoEm: emDias(-2), ativo: true },
+      { id: 'i2', nome: 'CDB Digital 110% CDI', modalidade: 'CDB', valorInvestido: 2470, rentabilidade: 8.75, atualizadoEm: emDias(-2), ativo: true },
+      { id: 'i3', nome: 'Fundo Multimercado Alfa', modalidade: 'Fundos', valorInvestido: 1494, rentabilidade: 6.1, atualizadoEm: emDias(-5), ativo: true },
+      { id: 'i4', nome: 'PETR4', modalidade: 'Ações', valorInvestido: 2490, rentabilidade: 12.3, atualizadoEm: emDias(-1), ativo: true },
+      { id: 'i5', nome: 'IVVB11', modalidade: 'ETFs', valorInvestido: 996, rentabilidade: 15.4, atualizadoEm: emDias(-1), ativo: true },
+    ],
+    metas: [
+      { id: 'me1', nome: 'Viagem', alvo: 6000, atual: 3600, prazo: `${addMeses(atual, 8)}-01`, cor: '#A855F7' },
+      { id: 'me2', nome: 'Reserva de emergência', alvo: 15000, atual: 9200, prazo: `${addMeses(atual, 12)}-01`, cor: '#27D9D0' },
+      { id: 'me3', nome: 'Notebook novo', alvo: 5000, atual: 5000, prazo: `${addMeses(atual, 1)}-01`, cor: '#2DE2A6' },
+    ],
+    orcamentos: [
+      { categoria: 'Moradia', limite: 1400 },
+      { categoria: 'Alimentação', limite: 900 },
+      { categoria: 'Transporte', limite: 600 },
+      { categoria: 'Lazer', limite: 400 },
+      { categoria: 'Saúde', limite: 350 },
+      { categoria: 'Educação', limite: 300 },
+      { categoria: 'Compras', limite: 500 },
+    ],
+    recorrentes: [
+      { id: 'r1', descricao: 'Aluguel do apartamento', valor: 950, diaVencimento: 5, tipo: 'despesa', categoria: 'Moradia', ativo: true },
+      { id: 'r2', descricao: 'Condomínio', valor: 126.56, diaVencimento: 5, tipo: 'despesa', categoria: 'Moradia', ativo: true },
+      { id: 'r3', descricao: 'Netflix', valor: 44.9, diaVencimento: 15, tipo: 'despesa', categoria: 'Assinaturas', ativo: true },
+      { id: 'r4', descricao: 'Spotify Premium', valor: 21.9, diaVencimento: 10, tipo: 'despesa', categoria: 'Assinaturas', ativo: true },
+      { id: 'r5', descricao: 'Vivo — internet e celular', valor: 119.9, diaVencimento: 20, tipo: 'despesa', categoria: 'Serviços', ativo: true },
+      { id: 'r6', descricao: 'Salário', valor: 5800, diaVencimento: 5, tipo: 'receita', categoria: 'Salário', ativo: true },
+    ],
+    categoriasCustom: [],
+    regrasCategoria: {},
+    conversas: [],
+  };
+}
+
+export const CONTA_DEMO = { email: 'ana.souza@exemplo.com', senha: 'contai123' };

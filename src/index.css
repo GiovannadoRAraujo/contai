@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background-color: #050816;
+  color: #F5F7FF;
+  font-family: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Brilho ambiente sutil do tema Dark Neon */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(900px 480px at 12% -8%, rgba(124, 58, 237, 0.18), transparent 60%),
+    radial-gradient(760px 420px at 92% 4%, rgba(39, 217, 208, 0.08), transparent 62%);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1b2746; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #2b3a66; background-clip: padding-box; }
+
+:focus-visible { outline: 2px solid #A855F7; outline-offset: 2px; border-radius: 10px; }
+
+input, select, textarea, button { font-family: inherit; }
+input[type='date']::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line/70 bg-card shadow-card;
+    background-image: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0));
+  }
+  .card-hover { @apply transition-all duration-200 hover:border-roxo/50 hover:shadow-glowsm; }
+  .label { @apply text-[11px] font-medium uppercase tracking-wider text-txt3; }
+  .title { @apply text-[15px] font-semibold text-txt; }
+  .muted { @apply text-[13px] text-txt2; }
+  .field {
+    @apply w-full rounded-xl border border-line bg-card2 px-3 py-2.5 text-sm text-txt placeholder:text-txt3
+           transition-colors focus:border-roxo focus:outline-none focus:ring-2 focus:ring-roxo/30;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+           transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn text-white shadow-glowsm hover:brightness-110 active:scale-[.98];
+    background-image: linear-gradient(135deg, #7C3AED 0%, #A855F7 100%);
+  }
+  .btn-ghost { @apply btn border border-line bg-card2 text-txt2 hover:border-roxo/50 hover:text-txt; }
+  .btn-soft { @apply btn bg-roxo/15 text-roxo-luz hover:bg-roxo/25; }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-card2 px-3 py-1.5
+           text-xs font-medium text-txt2 transition-colors hover:border-roxo/50 hover:text-txt;
+  }
+  .chip-on { @apply border-transparent text-white; background-image: linear-gradient(135deg, #7C3AED, #A855F7); }
+  .skeleton { @apply relative overflow-hidden rounded-lg bg-card2; }
+  .skeleton::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.recharts-surface:focus { outline: none; }
+.recharts-default-tooltip { background: #0B1228 !important; border: 1px solid #202D50 !important; border-radius: 12px !important; }

@@ -1,0 +1,51 @@
+# Dependências
+node_modules
+.pnp
+.pnp.js
+
+# Build
+dist
+dist-ssr
+build
+
+# Variáveis de ambiente e credenciais (nunca versionar)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+.netrc
+
+# Plataformas
+.vercel
+.netlify
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Cache de ferramentas
+.cache
+.vite
+.eslintcache
+coverage
+*.tsbuildinfo
+
+# Editores
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.swp
+*.local
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
