@@ -8,7 +8,7 @@ import { ModalInvestimento } from '@/components/formularios';
 import { useApp } from '@/store/app';
 import { carteiraPorClasse, patrimonio, serieEstimadaPatrimonio } from '@/lib/finance';
 import { brl, dataBR, num } from '@/lib/format';
-import { TAXAS_REFERENCIA } from '@/lib/simulador';
+import { taxasAtuais } from '@/lib/taxas';
 import type { Investimento } from '@/types';
 
 type Aba = 'visao' | 'simulador' | 'educacao';
@@ -24,8 +24,9 @@ export default function Investimentos() {
   const carteira = useMemo(() => carteiraPorClasse(estado), [estado]);
   const evolucao = useMemo(() => serieEstimadaPatrimonio(estado, 6), [estado]);
 
-  // Projeção informativa de 12 meses a 100% do CDI sobre o patrimônio atual
-  const projecao12m = pat.total * (TAXAS_REFERENCIA.CDI.valor / 100);
+  // Projeção informativa de 12 meses a 100% do CDI sobre o patrimônio atual (bruta, antes de IR)
+  const cdi = taxasAtuais(estado.prefs).CDI;
+  const projecao12m = pat.total * (cdi.valor / 100);
 
   return (
     <div className="space-y-5 pb-8">
@@ -78,22 +79,22 @@ export default function Investimentos() {
             </Card>
 
             <Card className="p-5 lg:col-span-3">
-              <CabecalhoCard titulo="Rentabilidade estimada (12 meses)" />
-              <p className="text-[24px] font-bold tracking-tight text-txt">{brl(projecao12m)}</p>
+              <CabecalhoCard titulo="Projeção bruta em 12 meses" />
+              <p className="text-[24px] font-bold tracking-tight text-txt"><Valor v={projecao12m} /></p>
               <p className="mt-1 text-[12px] text-txt2">
-                Equivalente a <span className="font-semibold text-verde">{num(TAXAS_REFERENCIA.CDI.valor, 2)}%</span> sobre
-                o patrimônio atual, considerando 100% do CDI.
+                Calculado pelo contAI: <span className="font-semibold text-verde">{num(cdi.valor, 2)}% a.a.</span> (100% do CDI)
+                sobre o patrimônio atual, antes de impostos.
               </p>
               <ul className="mt-4 space-y-2">
                 {pat.distribuicao.map((d) => (
                   <li key={d.modalidade} className="flex items-center justify-between rounded-lg border border-line/60 bg-card2/50 px-3 py-2 text-[12.5px]">
                     <span className="text-txt2">{d.modalidade}</span>
-                    <span className="font-semibold text-txt">{brl(d.valor)}</span>
+                    <span className="font-semibold text-txt"><Valor v={d.valor} /></span>
                   </li>
                 ))}
               </ul>
               <p className="mt-3 text-[10.5px] leading-snug text-txt3">
-                Projeção ilustrativa com o CDI de referência de {dataBR(TAXAS_REFERENCIA.CDI.data)} ({TAXAS_REFERENCIA.CDI.fonte}).
+                CDI: {cdi.fonte}, dado de {dataBR(cdi.data)}{cdi.origem === 'referencia' ? ' — valor ilustrativo, atualize no simulador' : ''}.
                 Não garante rentabilidade futura.
               </p>
             </Card>
@@ -111,14 +112,41 @@ export default function Investimentos() {
                 acao={<button type="button" className="btn-primary mt-1" onClick={() => { setEditando(null); setModal(true); }}>Cadastrar investimento</button>}
               />
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              <ul className="space-y-2 px-4 pb-4 md:hidden">
+                {estado.investimentos.map((i) => (
+                  <li key={i.id} className="rounded-xl border border-line bg-card2/50 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-1.5 truncate text-[13.5px] font-semibold text-txt">
+                          <span className="truncate">{i.nome}</span>{i.demo && <Badge tom="laranja" className="!py-0">Demo</Badge>}
+                        </p>
+                        <p className="text-[11.5px] text-txt3">{i.modalidade} · atualizado em {dataBR(i.atualizadoEm)}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-0.5">
+                        <button type="button" aria-label={`Editar ${i.nome}`} onClick={() => { setEditando(i); setModal(true); }}
+                          className="rounded-lg p-1.5 text-txt3 hover:bg-card2 hover:text-roxo-luz"><Pencil size={14} /></button>
+                        <button type="button" aria-label={`Excluir ${i.nome}`} onClick={() => setExcluir(i)}
+                          className="rounded-lg p-1.5 text-txt3 hover:bg-card2 hover:text-rosa"><Trash2 size={14} /></button>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-end justify-between">
+                      <p className="text-[15px] font-bold text-txt"><Valor v={i.valorInvestido} /></p>
+                      <p className={clsx('text-[12.5px] font-semibold', i.rentabilidade >= 0 ? 'text-verde' : 'text-rosa')}>
+                        {i.rentabilidade >= 0 ? '+' : ''}{num(i.rentabilidade, 2)}% <span className="font-normal text-txt3">informada</span>
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden overflow-x-auto md:block">
                 <table className="w-full min-w-[640px] text-left">
                   <thead>
                     <tr className="border-y border-line/60 text-[11px] uppercase tracking-wider text-txt3">
                       <th className="px-5 py-2.5 font-medium">Ativo</th>
                       <th className="px-3 py-2.5 font-medium">Modalidade</th>
                       <th className="px-3 py-2.5 text-right font-medium">Valor investido</th>
-                      <th className="px-3 py-2.5 text-right font-medium">Rentabilidade</th>
+                      <th className="px-3 py-2.5 text-right font-medium">Rentab. informada</th>
                       <th className="px-3 py-2.5 font-medium">Atualizado</th>
                       <th className="px-3 py-2.5 font-medium">Status</th>
                       <th className="px-5 py-2.5" />
@@ -127,9 +155,11 @@ export default function Investimentos() {
                   <tbody className="divide-y divide-line/50">
                     {estado.investimentos.map((i) => (
                       <tr key={i.id} className="group transition-colors hover:bg-card2/50">
-                        <td className="px-5 py-3 text-[13px] font-medium text-txt">{i.nome}</td>
+                        <td className="px-5 py-3 text-[13px] font-medium text-txt">
+                          {i.nome} {i.demo && <Badge tom="laranja" className="ml-1 !py-0">Demo</Badge>}
+                        </td>
                         <td className="px-3 py-3 text-[12.5px] text-txt2">{i.modalidade}</td>
-                        <td className="px-3 py-3 text-right text-[13px] font-semibold text-txt">{brl(i.valorInvestido)}</td>
+                        <td className="px-3 py-3 text-right text-[13px] font-semibold text-txt"><Valor v={i.valorInvestido} /></td>
                         <td className={clsx('px-3 py-3 text-right text-[13px] font-semibold', i.rentabilidade >= 0 ? 'text-verde' : 'text-rosa')}>
                           {i.rentabilidade >= 0 ? '+' : ''}{num(i.rentabilidade, 2)}%
                         </td>
@@ -138,7 +168,7 @@ export default function Investimentos() {
                           <Badge tom={i.ativo ? 'verde' : 'neutro'}>{i.ativo ? 'Ativo' : 'Encerrado'}</Badge>
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <div className="flex justify-end gap-1">
                             <button type="button" aria-label={`Editar ${i.nome}`} onClick={() => { setEditando(i); setModal(true); }}
                               className="rounded-lg p-1.5 text-txt3 hover:bg-card2 hover:text-roxo-luz"><Pencil size={14} /></button>
                             <button type="button" aria-label={`Excluir ${i.nome}`} onClick={() => setExcluir(i)}
@@ -150,6 +180,12 @@ export default function Investimentos() {
                   </tbody>
                 </table>
               </div>
+              <p className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line/60 px-5 py-3 text-[11px] text-txt3">
+                <span><strong className="text-txt2">Informado por você:</strong> valor, rentabilidade e data de atualização.</span>
+                <span><strong className="text-txt2">Calculado:</strong> totais, distribuição e evolução estimada.</span>
+                <span><strong className="text-txt2">Fonte externa:</strong> apenas taxas do Banco Central no simulador, quando atualizadas.</span>
+              </p>
+              </>
             )}
           </Card>
         </>

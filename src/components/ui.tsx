@@ -42,26 +42,33 @@ export function CabecalhoCard({
 /** Exibe um valor em BRL respeitando a preferência de ocultar valores. */
 export function Valor({ v, className = '' }: { v: number; className?: string }) {
   const { estado } = useApp();
-  if (estado.usuario.ocultarValores) {
+  if (estado.prefs.ocultarValores) {
     return <span className={clsx('select-none tracking-widest', className)}>R$ ••••••</span>;
   }
   return <span className={className}>{brl(v)}</span>;
 }
 
 export function Variacao({
-  v, invertido = false, sufixo = 'vs. mês anterior', tomClaro = false,
-}: { v: number; invertido?: boolean; sufixo?: string; tomClaro?: boolean }) {
+  v, invertido = false, sufixo = 'em relação ao mês anterior', tomClaro = false,
+}: { v: number | null; invertido?: boolean; sufixo?: string; tomClaro?: boolean }) {
+  if (v === null || !Number.isFinite(v)) {
+    return (
+      <span className={clsx('text-[10.5px] sm:text-xs', tomClaro ? 'text-white/70 xl:text-txt3' : 'text-txt3')}>
+        Sem base de comparação
+      </span>
+    );
+  }
   const positivo = v >= 0;
   const bom = invertido ? !positivo : positivo;
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[10.5px] sm:text-xs">
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 text-[10.5px] leading-snug sm:text-[11.5px]">
       <span className={clsx('inline-flex items-center gap-0.5 font-semibold', bom ? 'text-verde' : 'text-rosa')}>
         <svg width="10" height="10" viewBox="0 0 10 10" className={positivo ? '' : 'rotate-180'} aria-hidden>
           <path d="M5 1l4 7H1z" fill="currentColor" />
         </svg>
-        {Math.abs(v).toFixed(0)}%
+        {Math.abs(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
       </span>
-      <span className={clsx('truncate', tomClaro ? 'text-white/70 xl:text-txt3' : 'text-txt3')}>{sufixo}</span>
+      <span className={clsx(tomClaro ? 'text-white/70 xl:text-txt3' : 'text-txt3')}>{sufixo}</span>
     </span>
   );
 }

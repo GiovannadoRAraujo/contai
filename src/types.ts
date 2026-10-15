@@ -2,8 +2,19 @@ export type TipoMov = 'receita' | 'despesa';
 export type Origem = 'manual' | 'importacao' | 'ia';
 export type StatusFatura = 'pendente' | 'paga' | 'em_analise';
 
-export interface Movimentacao {
+/**
+ * Metadados comuns a todos os registros persistidos no IndexedDB.
+ * `demo` marca registros da base de demonstração (fictícios), que podem ser
+ * removidos de uma vez sem afetar os dados reais.
+ */
+export interface Registro {
   id: string;
+  criadoEm?: string;        // ISO com hora
+  modificadoEm?: string;    // ISO com hora
+  demo?: boolean;
+}
+
+export interface Movimentacao extends Registro {
   tipo: TipoMov;
   descricao: string;
   valor: number;            // sempre positivo; o sinal vem do tipo
@@ -12,53 +23,63 @@ export interface Movimentacao {
   contaId: string;
   origem: Origem;
   faturaId?: string;
+  documentoId?: string;
   parcela?: { atual: number; total: number };
   observacao?: string;
-  hash?: string;            // usado na deteccao de duplicidade da importacao
+  hash?: string;            // usado na detecção de duplicidade da importação
 }
 
-export interface Conta {
-  id: string;
+export interface Conta extends Registro {
   nome: string;
   tipo: 'corrente' | 'poupanca' | 'cartao' | 'carteira';
   saldoInicial: number;
-  limite?: number;          // apenas cartao
+  limite?: number;          // apenas cartão
   cor: string;
 }
 
-export interface Fatura {
+export interface Fatura extends Registro {
   contaId?: string;
-  id: string;
   emissor: string;
-  referencia: string;       // "Abril 2025"
+  referencia: string;
   valor: number;
   vencimento: string;       // ISO
   status: StatusFatura;
+  documentoId?: string;     // arquivo guardado no IndexedDB
   arquivoNome?: string;
   arquivoTipo?: string;
-  arquivoUrl?: string;      // object URL / data URL local
   paginas?: number;
   importada?: boolean;
+  linhaDigitavel?: string;
   cor: string;
   sigla: string;
 }
 
-export interface Investimento {
-  id: string;
+/** Metadados de um arquivo enviado. O conteúdo binário fica no store `arquivos`. */
+export interface Documento extends Registro {
   nome: string;
-  modalidade: Modalidade;
-  valorInvestido: number;
-  rentabilidade: number;    // % acumulada informada pelo usuario
-  atualizadoEm: string;     // ISO
-  ativo: boolean;
+  tipo: string;
+  tamanho: number;
+  sha256: string;           // detecção de documento já importado
+  paginas: number;
+  faturaId?: string;
+  importadoEm?: string;
+  transacoesImportadas?: number;
 }
 
 export type Modalidade =
   | 'Renda fixa' | 'Tesouro Direto' | 'CDB' | 'LCI/LCA'
   | 'Fundos' | 'Ações' | 'ETFs' | 'Outros';
 
-export interface Meta {
-  id: string;
+export interface Investimento extends Registro {
+  nome: string;
+  modalidade: Modalidade;
+  valorInvestido: number;
+  rentabilidade: number;    // % acumulada informada pelo usuário
+  atualizadoEm: string;     // ISO — data da última atualização informada
+  ativo: boolean;
+}
+
+export interface Meta extends Registro {
   nome: string;
   alvo: number;
   atual: number;
@@ -66,13 +87,13 @@ export interface Meta {
   cor: string;
 }
 
-export interface Orcamento {
+/** O id de um orçamento é a própria categoria. */
+export interface Orcamento extends Registro {
   categoria: string;
   limite: number;
 }
 
-export interface Recorrente {
-  id: string;
+export interface Recorrente extends Registro {
   descricao: string;
   valor: number;
   diaVencimento: number;
@@ -81,14 +102,44 @@ export interface Recorrente {
   ativo: boolean;
 }
 
-export interface Usuario {
+export interface Categoria extends Registro {
   nome: string;
-  email: string;
-  consentimentoIA: boolean;
-  ocultarValores: boolean;
+  tipo: TipoMov;
 }
 
-/* ---------- Importacao de documentos (IA) ---------- */
+/** Regra de classificação aprendida: descrições que contêm `padrao` vão para `categoria`. */
+export interface RegraCategoria extends Registro {
+  padrao: string;
+  categoria: string;
+  origem: 'revisao' | 'movimentacao' | 'assistente' | 'manual';
+}
+
+/** Histórico de correções feitas pelo usuário em classificações sugeridas. */
+export interface Correcao extends Registro {
+  descricao: string;
+  de: string;
+  para: string;
+  em: string;
+}
+
+export interface TaxaObtida {
+  valor: number;            // % ao ano
+  fonte: string;
+  data: string;             // data de referência do dado (ISO)
+  obtidaEm: string;         // quando o contAI buscou (ISO com hora)
+}
+
+export interface Preferencias {
+  /** Assistente pode consultar os registros financeiros locais. */
+  consentimentoIA: boolean;
+  /** Usuário autorizou enviar documentos/dados ao backend externo de IA. */
+  consentimentoEnvioExterno: boolean;
+  ocultarValores: boolean;
+  avisoPrivacidadeVisto: boolean;
+  taxas?: Partial<Record<'CDI' | 'SELIC' | 'IPCA', TaxaObtida>>;
+}
+
+/* ---------- Importação de documentos ---------- */
 
 export type StatusRevisao = 'pendente' | 'aprovada' | 'duvida' | 'ignorada' | 'duplicada';
 
@@ -100,32 +151,43 @@ export interface TransacaoExtraida {
   estabelecimento?: string;
   valor: number;
   tipo: TipoMov;
+  natureza?: 'compra' | 'estorno' | 'pagamento' | 'transferencia' | 'receita' | 'tarifa' | 'outro';
   categoria: string;
   confianca: number;        // 0..1
   parcela?: { atual: number; total: number };
   status: StatusRevisao;
   motivoDuvida?: string;
-  pagamentoFatura?: boolean; // pagamento total da fatura: nao vira despesa
+  pagamentoFatura?: boolean; // pagamento total da fatura: não vira despesa
+  linhaOrigem?: string;      // trecho do documento de onde a transação foi lida
 }
+
+export type MetodoLeitura = 'pdf-texto' | 'ocr-local' | 'servico-ia' | 'exemplo-demo' | 'manual';
 
 export interface DocumentoAnalisado {
   id: string;
+  arquivo?: File;
   arquivoNome: string;
   arquivoTipo: string;
   arquivoUrl?: string;
+  sha256?: string;
   paginas: number;
-  emissor: string;
+  emissor?: string;
   documento: 'fatura_cartao' | 'conta_consumo' | 'extrato' | 'comprovante' | 'desconhecido';
   totalDocumento?: number;
   vencimento?: string;
   linhaDigitavel?: string;
   transacoes: TransacaoExtraida[];
   analisadoEm: string;
-  demo: boolean;            // true = extração simulada (sem credenciais de OCR/LLM)
+  metodo: MetodoLeitura;
+  textoExtraido?: string;
+  avisos: string[];
+  jaImportadoEm?: string;   // mesmo arquivo (sha-256) já importado antes
+  demo: boolean;            // true = documento de exemplo fictício
 }
 
-export interface Mensagem {
-  id: string;
+/* ---------- Assistente ---------- */
+
+export interface Mensagem extends Registro {
   autor: 'user' | 'ia';
   texto: string;
   em: string;
@@ -133,17 +195,46 @@ export interface Mensagem {
   sugestoes?: string[];
 }
 
+export interface PreferenciaAprendida {
+  id: string;
+  texto: string;
+  em: string;
+}
+
+export interface ContextoConversa {
+  intencao: string;
+  periodo: string;
+  categoria?: string;
+  em: string;
+}
+
+export interface MemoriaAssistente {
+  preferencias: PreferenciaAprendida[];
+  contexto?: ContextoConversa;
+}
+
+/* ---------- Estado do aplicativo ---------- */
+
 export interface EstadoApp {
-  usuario: Usuario;
+  prefs: Preferencias;
+  memoria: MemoriaAssistente;
   contas: Conta[];
   movimentacoes: Movimentacao[];
   faturas: Fatura[];
+  documentos: Documento[];
   investimentos: Investimento[];
   metas: Meta[];
   orcamentos: Orcamento[];
   recorrentes: Recorrente[];
-  categoriasCustom: string[];
-  regrasCategoria: Record<string, string>;   // padrão -> categoria (aprendizado do usuário)
+  categorias: Categoria[];
+  regras: RegraCategoria[];
+  correcoes: Correcao[];
   conversas: Mensagem[];
-  autenticado: boolean;
 }
+
+/** Coleções de registros (cada uma vira um object store no IndexedDB). */
+export const COLECOES = [
+  'contas', 'movimentacoes', 'faturas', 'documentos', 'investimentos', 'metas',
+  'orcamentos', 'recorrentes', 'categorias', 'regras', 'correcoes', 'conversas',
+] as const;
+export type Colecao = (typeof COLECOES)[number];

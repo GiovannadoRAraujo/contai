@@ -7,7 +7,7 @@ import { useApp } from '@/store/app';
 import { useNav } from '@/store/nav';
 import { noMes, orcamentoVsReal, resumoMes } from '@/lib/finance';
 import { brl, dataBR, num, parseBRL, rotuloMes, uid } from '@/lib/format';
-import { CATEGORIAS_DESPESA, corCategoria } from '@/lib/categorias';
+import { CATEGORIAS_DESPESA, corCategoria, nomesCategorias } from '@/lib/categorias';
 import type { Meta, Recorrente } from '@/types';
 
 export default function Planejamento() {
@@ -340,7 +340,7 @@ function ModalOrcamento({ aberto, onFechar }: { aberto: boolean; onFechar: () =>
       }} className="space-y-4">
         <Campo rotulo="Categoria">
           <Selecao value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-            {[...CATEGORIAS_DESPESA, ...estado.categoriasCustom].map((c) => <option key={c} value={c}>{c}</option>)}
+            {nomesCategorias(estado.categorias, 'despesa').map((c) => <option key={c} value={c}>{c}</option>)}
           </Selecao>
         </Campo>
         <Campo rotulo="Limite mensal (R$)" erro={erro}>
@@ -403,7 +403,7 @@ function ModalRecorrente({ aberto, onFechar }: { aberto: boolean; onFechar: () =
           </Campo>
           <Campo rotulo="Categoria">
             <Selecao value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })}>
-              {[...CATEGORIAS_DESPESA, ...estado.categoriasCustom].map((c) => <option key={c} value={c}>{c}</option>)}
+              {nomesCategorias(estado.categorias, 'despesa').map((c) => <option key={c} value={c}>{c}</option>)}
             </Selecao>
           </Campo>
         </div>

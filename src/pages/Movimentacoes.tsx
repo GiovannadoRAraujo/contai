@@ -8,7 +8,7 @@ import { ModalMovimentacao } from '@/components/formularios';
 import { useApp } from '@/store/app';
 import { useNav } from '@/store/nav';
 import { brl, dataBR, mesDe, rotuloMes } from '@/lib/format';
-import { CATEGORIAS_DESPESA, CATEGORIAS_RECEITA, corCategoria, normalizar } from '@/lib/categorias';
+import { corCategoria, nomesCategorias, normalizar } from '@/lib/categorias';
 import type { Movimentacao } from '@/types';
 
 type Ordem = 'data-desc' | 'data-asc' | 'valor-desc' | 'valor-asc';
@@ -37,8 +37,8 @@ export default function Movimentacoes() {
   const [excluir, setExcluir] = useState<Movimentacao | null>(null);
 
   const categorias = useMemo(
-    () => [...new Set([...CATEGORIAS_DESPESA, ...CATEGORIAS_RECEITA, ...estado.categoriasCustom])],
-    [estado.categoriasCustom],
+    () => nomesCategorias(estado.categorias),
+    [estado.categorias],
   );
 
   const lista = useMemo(() => {
@@ -266,12 +266,12 @@ export default function Movimentacoes() {
                           </span>
                         </td>
                         <td className="px-3 py-3 text-[12.5px] text-txt2">{estado.contas.find((c) => c.id === m.contaId)?.nome ?? '—'}</td>
-                        <td className="px-3 py-3"><Badge tom={O.tom}><O.Icone size={11} /> {O.rotulo}</Badge></td>
+                        <td className="px-3 py-3"><span className="flex flex-wrap gap-1"><Badge tom={O.tom}><O.Icone size={11} /> {O.rotulo}</Badge>{m.demo && <Badge tom="laranja">Demo</Badge>}</span></td>
                         <td className={clsx('whitespace-nowrap px-3 py-3 text-right text-[13px] font-semibold', m.tipo === 'receita' ? 'text-verde' : 'text-rosa')}>
-                          {m.tipo === 'receita' ? '+' : '−'} {brl(m.valor)}
+                          {m.tipo === 'receita' ? '+' : '−'} {estado.prefs.ocultarValores ? 'R$ ••••' : brl(m.valor)}
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                             <button type="button" aria-label={`Editar ${m.descricao}`} onClick={() => { setEditando(m); setNovoTipo(m.tipo); setModal(true); }}
                               className="rounded-lg p-1.5 text-txt3 hover:bg-card2 hover:text-roxo-luz"><Pencil size={14} /></button>
                             <button type="button" aria-label={`Excluir ${m.descricao}`} onClick={() => setExcluir(m)}
@@ -299,12 +299,13 @@ export default function Movimentacoes() {
                       </p>
                       <div className="mt-1.5 flex items-center gap-2">
                         <Badge tom={O.tom}><O.Icone size={10} /> {O.rotulo}</Badge>
+                        {m.demo && <Badge tom="laranja">Demo</Badge>}
                         <button type="button" onClick={() => { setEditando(m); setNovoTipo(m.tipo); setModal(true); }} className="text-[11.5px] font-medium text-roxo-luz">Editar</button>
                         <button type="button" onClick={() => setExcluir(m)} className="text-[11.5px] font-medium text-rosa">Excluir</button>
                       </div>
                     </div>
                     <span className={clsx('shrink-0 text-[13.5px] font-semibold', m.tipo === 'receita' ? 'text-verde' : 'text-rosa')}>
-                      {m.tipo === 'receita' ? '+' : '−'} {brl(m.valor)}
+                      {m.tipo === 'receita' ? '+' : '−'} {estado.prefs.ocultarValores ? 'R$ ••••' : brl(m.valor)}
                     </span>
                   </li>
                 );

@@ -1,6 +1,6 @@
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Pie, PieChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { brl, num } from '@/lib/format';
 import { corCategoria } from '@/lib/categorias';
@@ -18,18 +18,20 @@ function Caixa({ children }: { children: React.ReactNode }) {
 }
 
 const abreviar = (v: number) => (Math.abs(v) >= 1000 ? `${num(v / 1000, 0)}k` : num(v, 0));
+const abreviarBRL = (v: number) => (Math.abs(v) >= 100000 ? `R$ ${num(v / 1000, 1)} mil` : brl(v));
 
 /* ----------------------- Despesas por categoria ----------------------- */
 export function Rosca({
-  dados, total, rotuloCentro = 'Total de despesas', altura = 190,
+  dados, total, rotuloCentro = 'Total de despesas', altura = 190, semCentro = false,
 }: {
   dados: Array<{ categoria: string; valor: number; pct: number }>;
   total: number;
   rotuloCentro?: string;
   altura?: number;
+  semCentro?: boolean;
 }) {
   const { estado } = useApp();
-  const oculto = estado.usuario.ocultarValores;
+  const oculto = estado.prefs.ocultarValores;
   const compacto = altura <= 150;
 
   return (
@@ -41,7 +43,7 @@ export function Rosca({
               data={dados}
               dataKey="valor"
               nameKey="categoria"
-              innerRadius="66%"
+              innerRadius={semCentro ? '62%' : '70%'}
               outerRadius="100%"
               paddingAngle={2}
               stroke="none"
@@ -67,14 +69,14 @@ export function Rosca({
             />
           </PieChart>
         </ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 grid place-items-center px-2 text-center">
+        {!semCentro && <div className="pointer-events-none absolute inset-0 grid place-items-center px-2 text-center">
           <div className="w-full">
             <p className={`font-bold leading-tight text-txt ${compacto ? 'text-[12.5px]' : 'text-[17px]'}`}>
               {oculto ? 'R$ ••••' : brl(total)}
             </p>
             <p className={`mt-0.5 leading-tight text-txt3 ${compacto ? 'text-[9px]' : 'text-[10.5px]'}`}>{rotuloCentro}</p>
           </div>
-        </div>
+        </div>}
       </div>
 
       <ul className={`w-full min-w-0 flex-1 ${compacto ? 'space-y-[5px]' : 'space-y-[7px]'}`}>
@@ -82,7 +84,7 @@ export function Rosca({
           <li key={d.categoria} className={`flex items-center gap-2 ${compacto ? 'text-[11.5px]' : 'text-[12.5px]'}`}>
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: corCategoria(d.categoria) }} />
             <span className="min-w-0 flex-1 truncate text-txt2">{d.categoria}</span>
-            <span className="shrink-0 font-semibold text-txt">{num(d.pct, 0)}%</span>
+            <span className="shrink-0 font-semibold text-txt">{num(d.pct, 1)}%</span>
           </li>
         ))}
       </ul>
@@ -132,9 +134,11 @@ export function BarrasComparativo({
 
 /* --------------------------- Evolução do saldo --------------------------- */
 export function LinhaSaldo({
-  dados, altura = 170, chave = 'saldo', cor = '#A855F7',
-}: { dados: Array<Record<string, unknown>>; altura?: number; chave?: string; cor?: string }) {
+  dados, altura = 170, chave = 'saldo', cor = '#A855F7', destacarUltimo = false,
+}: { dados: Array<Record<string, unknown>>; altura?: number; chave?: string; cor?: string; destacarUltimo?: boolean }) {
   const id = `grad-${chave}-${cor.replace('#', '')}`;
+  const { estado } = useApp();
+  const ultimo = dados.at(-1);
   return (
     <ResponsiveContainer width="100%" height={altura}>
       <AreaChart data={dados} margin={{ top: 8, right: 6, left: -22, bottom: 0 }}>
@@ -146,14 +150,15 @@ export function LinhaSaldo({
         </defs>
         <CartesianGrid stroke={GRADE} vertical={false} />
         <XAxis dataKey="mes" tick={EIXO} axisLine={false} tickLine={false} />
-        <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={abreviar} width={48} />
+        <YAxis tick={EIXO} axisLine={false} tickLine={false} tickFormatter={abreviar} width={48}
+          domain={[(min: number) => (min > 0 ? Math.floor((min * 0.8) / 1000) * 1000 : min), 'auto']} />
         <Tooltip
           cursor={{ stroke: cor, strokeDasharray: '4 4' }}
           content={({ payload, label }) =>
             payload?.[0] ? (
               <Caixa>
                 <p className="text-[12px] font-semibold text-txt">{label}</p>
-                <p className="text-[12px]" style={{ color: cor }}>{brl(Number(payload[0].value))}</p>
+                <p className="text-[12px]" style={{ color: cor }}>{estado.prefs.ocultarValores ? 'R$ ••••' : brl(Number(payload[0].value))}</p>
               </Caixa>
             ) : null
           }
@@ -167,17 +172,54 @@ export function LinhaSaldo({
           dot={{ r: 3, fill: cor, stroke: '#0B1228', strokeWidth: 2 }}
           activeDot={{ r: 5 }}
         />
+        {destacarUltimo && ultimo && (
+          <ReferenceDot
+            x={ultimo.mes as string}
+            y={ultimo[chave] as number}
+            r={5}
+            fill={cor}
+            stroke="#F5F7FF"
+            strokeWidth={2}
+            label={({ viewBox }: { viewBox?: { x?: number; y?: number } }) => {
+              const vy = viewBox?.y ?? 0;
+              const x = (viewBox?.x ?? 0) - 88;
+              const y = vy > 50 ? vy - 46 : vy + 12;
+              return (
+                <g>
+                  <rect x={x} y={y} width={82} height={34} rx={8} fill="#0B1228" stroke={cor} strokeOpacity={0.7} />
+                  <text x={x + 41} y={y + 15} textAnchor="middle" fill="#F5F7FF" fontSize={10.5} fontWeight={700}>
+                    {estado.prefs.ocultarValores ? 'R$ ••••' : abreviarBRL(ultimo[chave] as number)}
+                  </text>
+                  <text x={x + 41} y={y + 27} textAnchor="middle" fill="#9AA8C7" fontSize={9}>{ultimo.mes as string}</text>
+                </g>
+              );
+            }}
+          />
+        )}
       </AreaChart>
     </ResponsiveContainer>
   );
 }
 
 /* ------------------------- Mini gráfico de área ------------------------- */
-export function MiniArea({ dados, cor = '#A855F7', altura = 90 }: { dados: Array<{ v: number }>; cor?: string; altura?: number }) {
+export function MiniArea({
+  dados, cor = '#A855F7', altura = 90, comEixo = false,
+}: { dados: Array<{ v: number; mes?: string }>; cor?: string; altura?: number; comEixo?: boolean }) {
   const id = `mini-${cor.replace('#', '')}`;
+  const { estado } = useApp();
   return (
     <ResponsiveContainer width="100%" height={altura}>
       <AreaChart data={dados} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+        {comEixo && <XAxis dataKey="mes" tick={{ ...EIXO, fontSize: 10 }} axisLine={false} tickLine={false} />}
+        <Tooltip
+          cursor={{ stroke: cor, strokeDasharray: '4 4' }}
+          content={({ payload, label }) => payload?.[0] ? (
+            <Caixa>
+              <p className="text-[12px] font-semibold text-txt">{label ?? ''}</p>
+              <p className="text-[12px]" style={{ color: cor }}>{estado.prefs.ocultarValores ? 'R$ ••••' : brl(Number(payload[0].value))}</p>
+            </Caixa>
+          ) : null}
+        />
         <defs>
           <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={cor} stopOpacity={0.5} />

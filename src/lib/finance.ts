@@ -1,5 +1,5 @@
 import type { EstadoApp, Movimentacao } from '@/types';
-import { MESES, addMeses, diasAte, mesAnterior, mesDe, plural } from './format';
+import { MESES, addMeses, diasAte, mesAnterior, mesAtual, mesDe, plural } from './format';
 
 export const noMes = (movs: Movimentacao[], ym: string) => movs.filter((m) => mesDe(m.data) === ym);
 
@@ -8,8 +8,9 @@ export const soma = (movs: Movimentacao[]) => movs.reduce((t, m) => t + m.valor,
 export const receitas = (movs: Movimentacao[]) => soma(movs.filter((m) => m.tipo === 'receita'));
 export const despesas = (movs: Movimentacao[]) => soma(movs.filter((m) => m.tipo === 'despesa'));
 
-export const variacao = (atual: number, anterior: number) => {
-  if (!anterior) return atual ? 100 : 0;
+/** Variação percentual; `null` quando não há base de comparação (período anterior zerado). */
+export const variacao = (atual: number, anterior: number): number | null => {
+  if (!anterior) return null;
   return ((atual - anterior) / Math.abs(anterior)) * 100;
 };
 
@@ -66,7 +67,7 @@ export function porCategoria(movs: Movimentacao[], tipo: 'despesa' | 'receita' =
 }
 
 /** Série dos últimos N meses terminando em `ym`. */
-export function serieMeses(estado: EstadoApp, ym: string, n = 4) {
+export function serieMeses(estado: EstadoApp, ym: string, n = 6) {
   const out: Array<{ mes: string; ym: string; receitas: number; despesas: number; saldo: number }> = [];
   for (let i = n - 1; i >= 0; i--) {
     const alvo = addMeses(ym, -i);
@@ -99,68 +100,106 @@ export function patrimonio(estado: EstadoApp) {
 }
 
 export function usoDoCartao(estado: EstadoApp) {
+  const ym = mesAtual();
   return estado.contas
     .filter((c) => c.tipo === 'cartao' && c.limite)
     .map((c) => {
-      const usado = estado.faturas
-        .filter((f) => f.status !== 'paga' && f.emissor.toLowerCase().includes(c.nome.toLowerCase().split(' ')[0]))
+      const emAberto = estado.faturas
+        .filter((f) => f.status !== 'paga' && f.contaId === c.id)
         .reduce((t, f) => t + f.valor, 0);
+      // Sem fatura em aberto cadastrada, usa as compras do mês lançadas no cartão
+      const usado = emAberto || despesas(noMes(estado.movimentacoes, ym).filter((m) => m.contaId === c.id));
       return { conta: c, usado, pct: c.limite ? (usado / c.limite) * 100 : 0 };
     });
 }
 
-export function alertas(estado: EstadoApp) {
-  const lista: Array<{ id: string; tipo: 'conta' | 'cartao' | 'meta'; titulo: string; detalhe: string; cor: string; progresso?: number }> = [];
+export type Alerta = {
+  id: string; tipo: 'conta' | 'cartao' | 'meta' | 'lembrete';
+  titulo: string; detalhe: string; cor: string; progresso?: number; valor?: number;
+};
+
+/** Próxima data (ISO) de um dia de vencimento mensal a partir de hoje. */
+export function proximoVencimento(dia: number, base = new Date()) {
+  const ano = base.getFullYear();
+  const mes = base.getMonth();
+  const ultimo = (a: number, m: number) => new Date(a, m + 1, 0).getDate();
+  let d = new Date(ano, mes, Math.min(dia, ultimo(ano, mes)));
+  const hojeZero = new Date(ano, mes, base.getDate());
+  if (d < hojeZero) d = new Date(ano, mes + 1, Math.min(dia, ultimo(ano, mes + 1)));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function alertas(estado: EstadoApp): Alerta[] {
+  const lista: Alerta[] = [];
+  const brl = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   estado.faturas
     .filter((f) => f.status !== 'paga')
     .map((f) => ({ f, d: diasAte(f.vencimento) }))
     .filter(({ d }) => d >= -30 && d <= 10)
     .sort((a, b) => a.d - b.d)
-    .slice(0, 3)
+    .slice(0, 2)
     .forEach(({ f, d }) => {
       const nome = f.referencia.toLowerCase().includes('fatura') ? `Fatura ${f.emissor}` : f.referencia;
       lista.push({
         id: `f-${f.id}`,
         tipo: 'conta',
-        titulo:
-          d < 0 ? `${nome} venceu há ${plural(Math.abs(d), 'dia', 'dias')}`
-            : d === 0 ? `${nome} vence hoje`
-              : `${nome} vence em ${plural(d, 'dia', 'dias')}`,
-        detalhe: `R$ ${f.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        titulo: nome,
+        detalhe: d < 0 ? `Venceu há ${plural(Math.abs(d), 'dia', 'dias')}` : d === 0 ? 'Vence hoje' : `Vence em ${plural(d, 'dia', 'dias')}`,
+        valor: f.valor,
         cor: d < 0 ? '#F052A0' : '#FF9F43',
       });
     });
 
   usoDoCartao(estado)
-    .filter((c) => c.pct >= 50)
-    .slice(0, 2)
+    .filter((c) => c.pct >= 70)
+    .slice(0, 1)
     .forEach((c) =>
       lista.push({
         id: `c-${c.conta.id}`,
         tipo: 'cartao',
-        titulo: `Cartão ${c.conta.nome} próximo do limite`,
-        detalhe: `${c.pct.toFixed(0)}% utilizado`,
-        cor: '#8B5CF6',
+        titulo: `Cartão ${c.conta.nome}`,
+        detalhe: `Próximo do limite (${c.pct.toFixed(0)}%)`,
+        valor: c.usado,
+        cor: '#F052A0',
         progresso: Math.min(100, c.pct),
       }),
     );
 
   estado.metas
-    .filter((m) => m.alvo > 0)
+    .filter((m) => m.alvo > 0 && m.atual < m.alvo)
     .sort((a, b) => b.atual / b.alvo - a.atual / a.alvo)
-    .slice(0, 2)
+    .slice(0, 1)
     .forEach((m) => {
       const p = (m.atual / m.alvo) * 100;
       lista.push({
         id: `m-${m.id}`,
         tipo: 'meta',
-        titulo: `Meta ${m.nome} está ${p.toFixed(0)}% concluída`,
-        detalhe: p >= 100 ? 'Objetivo alcançado' : `Faltam R$ ${(m.alvo - m.atual).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-        cor: p >= 100 ? '#2DE2A6' : '#2DE2A6',
+        titulo: `Meta: ${m.nome}`,
+        detalhe: `Falta ${brl(m.alvo - m.atual)}`,
+        cor: '#A855F7',
         progresso: Math.min(100, p),
       });
     });
+
+  // Lembretes: contas recorrentes que vencem nos próximos 5 dias e ainda não têm fatura
+  estado.recorrentes
+    .filter((r) => r.ativo && r.tipo === 'despesa')
+    .map((r) => ({ r, venc: proximoVencimento(r.diaVencimento) }))
+    .map((x) => ({ ...x, d: diasAte(x.venc) }))
+    .filter(({ d }) => d >= 0 && d <= 5)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 1)
+    .forEach(({ r, d }) =>
+      lista.push({
+        id: `r-${r.id}`,
+        tipo: 'lembrete',
+        titulo: `Lembrete: ${r.descricao}`,
+        detalhe: d === 0 ? 'Recorrente vence hoje' : `Recorrente vence em ${plural(d, 'dia', 'dias')}`,
+        valor: r.valor,
+        cor: '#8B5CF6',
+      }),
+    );
 
   return lista.slice(0, 5);
 }
