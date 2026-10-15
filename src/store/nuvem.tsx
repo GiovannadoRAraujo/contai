@@ -6,6 +6,7 @@ import {
   apagarArquivoDaNuvem, apagarTodosArquivos, enviarArquivo, NUVEM_CONFIGURADA, recuperacao, supabase, traduzirErro, urlRetorno,
 } from '@/lib/nuvem/cliente';
 import { diferencas, todasAsMudancas, type LinhaRemota, type Mudanca } from '@/lib/nuvem/mesclar';
+import { TERMOS_VERSAO } from '@/lib/legal';
 
 /**
  * Conta opcional + sincronização entre aparelhos.
@@ -22,6 +23,8 @@ export interface Usuario { id: string; email: string }
 
 interface NuvemCtx {
   configurada: boolean;
+  /** A sessão salva já foi verificada (evita piscar a tela de entrada para quem já está conectado). */
+  sessaoVerificada: boolean;
   usuario: Usuario | null;
   status: StatusSync;
   ultimaSync: string | null;
@@ -33,8 +36,10 @@ interface NuvemCtx {
   criarConta: (email: string, senha: string) => Promise<'conectado' | 'confirmar-email'>;
   recuperarSenha: (email: string) => Promise<void>;
   definirNovaSenha: (senha: string) => Promise<void>;
-  sair: (apagarLocal: boolean) => Promise<void>;
-  excluirConta: (apagarLocal: boolean) => Promise<void>;
+  /** Sai da conta e apaga a cópia local deste aparelho (os dados continuam na conta). */
+  sair: () => Promise<void>;
+  /** Exclui a conta e todos os dados do servidor e do aparelho. */
+  excluirConta: () => Promise<void>;
   sincronizarAgora: () => Promise<void>;
 }
 
@@ -46,6 +51,7 @@ const ehErroDeRede = (e: unknown) => /failed to fetch|network|load failed|fetch 
 export function NuvemProvider({ children }: { children: React.ReactNode }) {
   const { estado, dispatch, avisar, geracao, apagarTudo } = useApp();
   const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [sessaoVerificada, setSessaoVerificada] = useState(!NUVEM_CONFIGURADA);
   const [status, setStatus] = useState<StatusSync>('desligado');
   const [ultimaSync, setUltimaSync] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -159,15 +165,19 @@ export function NuvemProvider({ children }: { children: React.ReactNode }) {
 
   /* --------------------------------- sessão --------------------------------- */
   const iniciarSessao = useCallback(async (u: Usuario) => {
-    // Primeira vez desta conta neste aparelho: tudo o que já existe aqui sobe e se junta à conta
     const anteriorUid = await db.lerMeta<string>('sync.usuario');
-    if (anteriorUid !== u.id) {
+    if (anteriorUid && anteriorUid !== u.id) {
+      // Outra pessoa usou este aparelho antes: os dados dela nunca vão para esta conta
+      await apagarTudo();
+      await db.gravarMeta('sync.usuario', u.id);
+    } else if (anteriorUid !== u.id) {
+      // Primeira conta deste aparelho: o que já existia aqui (sem conta) sobe e se junta à conta
       await db.limparFila();
       await db.enfileirar(todasAsMudancas(estadoRef.current));
       await db.gravarMeta('sync.usuario', u.id);
     }
     await sincronizarAgora();
-  }, [sincronizarAgora]);
+  }, [sincronizarAgora, apagarTudo]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -181,7 +191,9 @@ export function NuvemProvider({ children }: { children: React.ReactNode }) {
       const novo = s ? { id: s.user.id, email: s.user.email ?? '' } : null;
       setUsuario((atual) => (atual?.id === novo?.id ? atual : novo));
     };
-    void supabase.auth.getSession().then(({ data }) => aplicar(data.session));
+    void supabase.auth.getSession()
+      .then(({ data }) => aplicar(data.session))
+      .finally(() => setSessaoVerificada(true));
     const { data } = supabase.auth.onAuthStateChange((evento, sessao) => {
       if (evento === 'PASSWORD_RECOVERY') setRecuperandoSenha(true);
       aplicar(sessao);
@@ -225,11 +237,20 @@ export function NuvemProvider({ children }: { children: React.ReactNode }) {
     if (!supabase) throw new Error('Sincronização não configurada.');
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
     if (error) throw new Error(traduzirErro(error));
+    // Registra o aceite da versão atual dos termos (feito na tela de entrada)
+    void supabase.auth.updateUser({ data: { termos_versao: TERMOS_VERSAO, termos_aceitos_em: new Date().toISOString() } });
   }, []);
 
   const criarConta = useCallback(async (email: string, senha: string) => {
     if (!supabase) throw new Error('Sincronização não configurada.');
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: senha, options: { emailRedirectTo: urlRetorno() } });
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: senha,
+      options: {
+        emailRedirectTo: urlRetorno(),
+        data: { termos_versao: TERMOS_VERSAO, termos_aceitos_em: new Date().toISOString() },
+      },
+    });
     if (error) throw new Error(traduzirErro(error));
     // Com confirmação de e-mail ligada, o Supabase devolve um usuário sem identidades se o e-mail já existe
     if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
@@ -251,21 +272,20 @@ export function NuvemProvider({ children }: { children: React.ReactNode }) {
     setRecuperandoSenha(false);
   }, [setRecuperandoSenha]);
 
-  const desconectarLocal = useCallback(async (apagarLocal: boolean) => {
+  // Ao sair, a cópia local é apagada: com login obrigatório o aparelho pode ser de outra pessoa
+  const desconectarLocal = useCallback(async () => {
     if (timer.current) window.clearTimeout(timer.current);
     await supabase?.auth.signOut({ scope: 'local' });
     setUsuario(null);
-    await db.limparFila();
-    await db.gravarMeta('sync.usuario', undefined);
     setPendentes(0);
-    if (apagarLocal) await apagarTudo();
+    await apagarTudo(); // limpa registros, arquivos, fila e metadados
   }, [apagarTudo]);
 
-  const sair = useCallback(async (apagarLocal: boolean) => {
-    await desconectarLocal(apagarLocal);
+  const sair = useCallback(async () => {
+    await desconectarLocal();
   }, [desconectarLocal]);
 
-  const excluirConta = useCallback(async (apagarLocal: boolean) => {
+  const excluirConta = useCallback(async () => {
     const u = usuarioRef.current;
     if (!supabase || !u) throw new Error('Nenhuma conta conectada.');
     try {
@@ -275,15 +295,15 @@ export function NuvemProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       throw new Error(traduzirErro(e));
     }
-    await db.gravarMeta(`sync.cursor.${u.id}`, undefined);
-    await desconectarLocal(apagarLocal);
+    await desconectarLocal();
   }, [desconectarLocal]);
 
   const valor = useMemo<NuvemCtx>(() => ({
     configurada: NUVEM_CONFIGURADA,
+    sessaoVerificada,
     usuario, status, ultimaSync, erro, pendentes, recuperandoSenha, setRecuperandoSenha,
     entrar, criarConta, recuperarSenha, definirNovaSenha, sair, excluirConta, sincronizarAgora,
-  }), [usuario, status, ultimaSync, erro, pendentes, recuperandoSenha, setRecuperandoSenha, entrar, criarConta, recuperarSenha, definirNovaSenha, sair, excluirConta, sincronizarAgora]);
+  }), [sessaoVerificada, usuario, status, ultimaSync, erro, pendentes, recuperandoSenha, setRecuperandoSenha, entrar, criarConta, recuperarSenha, definirNovaSenha, sair, excluirConta, sincronizarAgora]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Brain, Check, Database, Download, Eye, HardDrive, Pencil, Plus, ShieldCheck, Tags,
+  AlertTriangle, Brain, Check, Database, Download, Eye, FileText, HardDrive, Pencil, Plus, ShieldCheck, Tags,
   Trash2, Upload, Wallet, X,
 } from 'lucide-react';
 import { Badge, CabecalhoCard, Campo, Card, Confirmacao, Entrada, Modal, Selecao } from '@/components/ui';
@@ -12,6 +12,7 @@ import { baixar, gerarBackup, gravarArquivosDoBackup, validarBackup, type Result
 import { CATEGORIAS_DESPESA, CATEGORIAS_RECEITA } from '@/lib/categorias';
 import type { Conta } from '@/types';
 import { CartaoConta } from '@/components/Conta';
+import { useNav } from '@/store/nav';
 import { useNuvem } from '@/store/nuvem';
 
 const CORES = ['#8B5CF6', '#27D9D0', '#2DE2A6', '#FF9F43', '#F052A0', '#60A5FA'];
@@ -94,6 +95,7 @@ function ArmazenamentoLocal() {
 /* ----------------------------- Privacidade ----------------------------- */
 function PrivacidadeIA() {
   const { estado, dispatch, avisar } = useApp();
+  const { ir } = useNav();
   return (
     <Card className="p-5">
       <CabecalhoCard titulo="Privacidade e IA" icone={<ShieldCheck size={16} className="text-roxo-luz" />} />
@@ -121,6 +123,11 @@ function PrivacidadeIA() {
           icone={<Eye size={15} />}
         />
       </div>
+      <button type="button" onClick={() => ir('privacidade')}
+        className="mt-3 flex w-full items-center justify-between rounded-xl border border-line bg-card2/50 px-3.5 py-3 text-left text-[13px] font-medium text-txt transition-colors hover:border-roxo/50">
+        <span className="flex items-center gap-2"><FileText size={15} className="text-roxo-luz" /> Termos de uso e Política de privacidade</span>
+        <span className="text-txt3">›</span>
+      </button>
       <p className="mt-3 text-[11.5px] leading-relaxed text-txt3">
         Documentos enviados são validados (formato, tamanho e conteúdo real do arquivo) e lidos no navegador com pdf.js e OCR.
         Na primeira leitura de imagem, o motor de OCR e o modelo de português são baixados da CDN jsDelivr — o seu arquivo não é enviado.
@@ -540,7 +547,7 @@ function ZonaPerigo() {
             onClick={async () => {
               setApagando(true);
               try {
-                if (nuvem.usuario) await nuvem.sair(true);
+                if (nuvem.usuario) await nuvem.sair();
                 else await apagarTudo();
                 avisar('Todos os dados locais foram apagados.', 'info');
                 setAberto(false);

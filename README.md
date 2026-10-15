@@ -3,8 +3,10 @@
 Aplicativo web no estilo **Dark Neon Finance Dashboard**, seguindo a imagem de referência
 `Dashboard Financeiro contAI em Neon.png`. React + TypeScript + Vite + Tailwind CSS + Recharts + Lucide.
 
-**Acesso aberto:** o endereço abre direto no dashboard, sem login. Uma **conta opcional** (e-mail e senha)
-sincroniza os dados entre celular e computador para quem quiser.
+**Acesso com conta:** com o Supabase configurado (como em produção), o site abre numa tela de entrada —
+Entrar / Criar conta, com aceite obrigatório dos Termos de uso e da Política de privacidade — e cada pessoa
+tem os próprios dados, sincronizados entre aparelhos. Sem o Supabase configurado (ex.: `npm run dev` sem
+`.env.local`), o app roda só com dados locais, sem login.
 
 ## Como executar
 
@@ -60,10 +62,18 @@ npm run test:db    # testes das migrações em PGlite (RLS, sincronização, exc
 - Limpar os dados do site, usar janela anônima ou o navegador descartar o armazenamento apaga tudo —
   exporte backups. Configurações permite pedir armazenamento persistente.
 
-## Conta opcional e sincronização
+## Conta e sincronização
 
-Em **Configurações › Conta e sincronização**: criar conta, entrar, recuperar senha, sair (mantendo ou
-apagando os dados do aparelho) e excluir a conta com todos os dados do servidor.
+- **Tela de entrada** (`src/components/TelaEntrada.tsx`): Entrar, Criar conta e Esqueci a senha. A caixa
+  "Li e concordo com os Termos de uso e a Política de privacidade" é obrigatória nos dois; a versão aceita
+  e a data ficam nos metadados do usuário (`termos_versao`, `termos_aceitos_em`).
+- **Termos e privacidade** (`src/pages/Privacidade.tsx`, rota pública `#/privacidade`). Ao mudar o texto,
+  aumente `TERMOS_VERSAO` em `src/lib/legal.ts`. **Preencha `CONTATO_PRIVACIDADE`** com o e-mail do
+  responsável antes de abrir para o público (hoje aparece "a ser divulgado").
+- **Mesmo aparelho, pessoas diferentes:** ao sair (ou excluir a conta) a cópia local é apagada; se outra conta
+  entrar num aparelho que tinha dados de alguém, esses dados são apagados antes de sincronizar.
+- Em **Configurações › Conta e sincronização**: status, sincronizar agora, sair e excluir a conta com todos os
+  dados do servidor.
 
 - **Local-first:** tudo continua sendo gravado primeiro no IndexedDB. Com a conta conectada, cada alteração
   entra numa fila persistente e sobe em segundo plano; sem internet, espera e sobe quando a conexão volta.
