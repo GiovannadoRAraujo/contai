@@ -57,3 +57,20 @@ export const DICIONARIO: Array<{ categoria: string; termos: string[] }> = [
 
 export const normalizar = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Categorias padrão + categorias criadas pelo usuário, sem repetição. */
+export function nomesCategorias(
+  personalizadas: Array<{ nome: string; tipo: 'receita' | 'despesa' }>,
+  tipo?: 'receita' | 'despesa',
+): string[] {
+  const base: readonly string[] =
+    tipo === 'receita' ? CATEGORIAS_RECEITA
+      : tipo === 'despesa' ? CATEGORIAS_DESPESA
+        : [...CATEGORIAS_DESPESA, ...CATEGORIAS_RECEITA];
+  const extras = personalizadas.filter((c) => !tipo || c.tipo === tipo).map((c) => c.nome);
+  return [...new Set([...base, ...extras])];
+}
+
+/** Regras aprendidas no formato usado pelo classificador (padrão -> categoria). */
+export const mapaRegras = (regras: Array<{ padrao: string; categoria: string }>) =>
+  Object.fromEntries(regras.map((r) => [r.padrao, r.categoria]));

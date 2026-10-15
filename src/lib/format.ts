@@ -9,11 +9,18 @@ export const pct = (v: number, casas = 1) => `${num(v, casas)}%`;
 /** ISO (yyyy-mm-dd) -> 14/10/2026 */
 export const dataBR = (iso: string) => {
   if (!iso) return '—';
-  const [a, m, d] = iso.slice(0, 10).split('-');
+  // Carimbo com hora (UTC) → data no fuso local; data pura (yyyy-mm-dd) fica como está
+  const base = iso.length > 10 && iso.includes('T') && !Number.isNaN(Date.parse(iso)) ? isoLocal(new Date(iso)) : iso.slice(0, 10);
+  const [a, m, d] = base.split('-');
   return `${d}/${m}/${a}`;
 };
 
-export const hoje = () => new Date().toISOString().slice(0, 10);
+/** Data local (não UTC) no formato yyyy-mm-dd. */
+export const isoLocal = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export const hoje = () => isoLocal(new Date());
+export const mesAtual = () => hoje().slice(0, 7);
 
 export const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 export const MESES_LONGOS = [

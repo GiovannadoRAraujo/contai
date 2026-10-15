@@ -14,7 +14,7 @@ const PRINCIPAIS: Array<{ rota: Rota; nome: string; Icone: typeof Home }> = [
 const EXTRAS: Array<{ rota: Rota; nome: string; descricao: string; Icone: typeof Home }> = [
   { rota: 'investimentos', nome: 'Investimentos', descricao: 'Carteira, rentabilidade e simulador', Icone: LineChart },
   { rota: 'assistente', nome: 'Assistente IA', descricao: 'Pergunte sobre os seus dados', Icone: Bot },
-  { rota: 'configuracoes', nome: 'Configurações', descricao: 'Conta, privacidade e preferências', Icone: Settings },
+  { rota: 'configuracoes', nome: 'Configurações', descricao: 'Privacidade, backup e preferências', Icone: Settings },
 ];
 
 export default function MobileNav() {

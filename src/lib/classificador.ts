@@ -82,7 +82,9 @@ export function classificar(
   }
 
   // Descrições com códigos de adquirente costumam ser ambíguas
-  if (/^[a-z]{2,4}\*/i.test(descricao) || /\d{4,}/.test(descricao.replace(/[^\d]/g, '').slice(0, 20))) {
+  // (parcelas como "PARC 02/05" não contam como código)
+  const semParcela = descricao.replace(/(parc(ela)?\s*)?\d{1,2}\s*\/\s*\d{1,2}/gi, '');
+  if (/^[a-z]{2,4}\*/i.test(descricao) || /\d{4,}/.test(semParcela)) {
     return { categoria: 'Outros', confianca: 0.28, motivo: 'Descrição com código de intermediador de pagamento, sem estabelecimento claro' };
   }
 

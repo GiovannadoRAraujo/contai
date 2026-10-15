@@ -1,245 +1,214 @@
 import type { DocumentoAnalisado, EstadoApp, TransacaoExtraida } from '@/types';
-import { classificar, detectarParcela, ehPagamentoDeFatura, detectarTipo, LIMITE_CONFIANCA } from './classificador';
 import { hashMov } from './finance';
 import { uid } from './format';
+import { mapaRegras } from './categorias';
+import { interpretarTexto } from './leitura/interpretar';
+import type { Progresso } from './leitura/extrair';
 
 /**
  * Camada de serviço de leitura de documentos.
  *
- * Em produção, `VITE_IA_ENDPOINT` deve apontar para um backend próprio que
- * encapsula o OCR e o modelo de linguagem. Nenhuma chave de API é lida ou
- * exposta no frontend. Sem esse endpoint configurado, o contAI roda com um
- * extrator local de demonstração — e todo documento analisado fica marcado
- * com `demo: true`, sinalizado na interface.
+ * 1. Leitura local (padrão): PDFs com texto via pdf.js e imagens/PDFs escaneados
+ *    via OCR Tesseract, tudo no navegador. O texto é interpretado por regras
+ *    (`leitura/interpretar.ts`) — não por um modelo de linguagem.
+ * 2. Serviço de IA (opcional): `VITE_IA_ENDPOINT` aponta para um backend próprio
+ *    que guarda as credenciais de OCR/LLM. Só é usado com o consentimento
+ *    explícito do usuário para envio externo. Nenhuma chave fica no frontend.
  */
-export const IA_ENDPOINT: string = (import.meta.env.VITE_IA_ENDPOINT as string) ?? '';
+export const IA_ENDPOINT: string = (import.meta.env.VITE_IA_ENDPOINT as string | undefined)?.replace(/\/$/, '') ?? '';
 export const IA_CONFIGURADA = IA_ENDPOINT.length > 0;
 
-/* ------------------------------------------------------------------ *
- * Gerador determinístico (mesmo arquivo => mesma leitura)
- * ------------------------------------------------------------------ */
-function semente(txt: string) {
-  let h = 2166136261;
-  for (let i = 0; i < txt.length; i++) {
-    h ^= txt.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function rng(s: number) {
-  let a = s;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export const TIPOS_ACEITOS = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+export const TAMANHO_MAX = 15 * 1024 * 1024; // 15 MB
 
-const CATALOGO: Array<[string, number, number]> = [
-  ['IFOOD *IFOOD', 28, 140],
-  ['UBER *TRIP', 12, 65],
-  ['POSTO SHELL AV PAULISTA', 90, 320],
-  ['DROGARIA SAO PAULO', 25, 180],
-  ['SUPERMERCADO PAO DE ACUCAR', 120, 480],
-  ['NETFLIX.COM', 39.9, 55.9],
-  ['SPOTIFY P1A2B3', 21.9, 34.9],
-  ['AMAZON BR MARKETPLACE', 45, 390],
-  ['MERCADOLIVRE*MERCADOLIV', 30, 280],
-  ['RESTAURANTE DONA LUCIA', 38, 160],
-  ['CINEMARK SHOPPING', 32, 96],
-  ['CLARO MOVEL', 59.9, 159.9],
-  ['PADARIA BELLA VISTA', 12, 60],
-  ['MP*SERVDIGITAL', 19.9, 129.9],
-  ['PAG*LOJA2231', 25, 210],
-  ['PICPAY*PGTO', 15, 180],
-  ['ESTACIONAMENTO CENTRAL', 10, 45],
-  ['ALURA CURSOS ONLINE', 85, 125],
+const ASSINATURAS: Array<{ tipo: string; bytes: number[] }> = [
+  { tipo: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] },        // %PDF
+  { tipo: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47] },
+  { tipo: 'image/jpeg', bytes: [0xff, 0xd8, 0xff] },
+  { tipo: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46] },             // RIFF
 ];
 
-const EMISSORES = ['Nubank', 'Itaú', 'Bradesco', 'Inter', 'C6 Bank', 'Santander'];
-
-function tipoDocumento(nome: string, mime: string): DocumentoAnalisado['documento'] {
-  const n = nome.toLowerCase();
-  if (/fatura|cart[aã]o|invoice/.test(n)) return 'fatura_cartao';
-  if (/extrato|statement/.test(n)) return 'extrato';
-  if (/luz|energia|[aá]gua|g[aá]s|internet|boleto|conta/.test(n)) return 'conta_consumo';
-  if (/comprovante|recibo|pix/.test(n)) return 'comprovante';
-  return mime.startsWith('image/') ? 'extrato' : 'fatura_cartao';
-}
-
-function dataAleatoria(r: () => number, mesesAtras = 0) {
-  const base = new Date();
-  base.setMonth(base.getMonth() - mesesAtras);
-  const diasNoMes = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-  const d = Math.max(1, Math.min(diasNoMes, Math.floor(r() * diasNoMes) + 1));
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-const dinheiro = (r: () => number, min: number, max: number) =>
-  Math.round((min + r() * (max - min)) * 100) / 100;
-
-/** Extrator local de demonstração. */
-function extrairDemo(arquivo: File, estado: EstadoApp): DocumentoAnalisado {
-  const r = rng(semente(`${arquivo.name}:${arquivo.size}:${arquivo.lastModified}`));
-  const doc = tipoDocumento(arquivo.name, arquivo.type);
-  const nomeNormalizado = arquivo.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const emissor =
-    EMISSORES.find((e) => nomeNormalizado.includes(e.toLowerCase().replace(/[^a-z0-9]/g, ''))) ??
-    EMISSORES[Math.floor(r() * EMISSORES.length)];
-
-  const existentes = new Set(
-    estado.movimentacoes.map((m) => m.hash ?? hashMov(m.data, m.valor, m.descricao)),
-  );
-
-  const transacoes: TransacaoExtraida[] = [];
-  const empurrar = (descricao: string, valor: number, data: string, forcarDuvida = false) => {
-    const tipo = detectarTipo(descricao);
-    const cls = classificar(descricao, tipo, estado.regrasCategoria);
-    const parcela = detectarParcela(descricao);
-    const pagamento = ehPagamentoDeFatura(descricao);
-    const duplicada = existentes.has(hashMov(data, valor, descricao));
-    transacoes.push({
-      id: uid(),
-      data,
-      descricao: descricao
-        .replace(/^[A-Z]{2,4}\*/, '')
-        .replace(/\s+\d{4,}$/, '')
-        .trim(),
-      descricaoOriginal: descricao,
-      estabelecimento: descricao.split('*').pop()?.trim(),
-      valor,
-      tipo,
-      categoria: cls.categoria,
-      confianca: pagamento ? 0.99 : cls.confianca,
-      parcela,
-      pagamentoFatura: pagamento,
-      status: pagamento
-        ? 'ignorada'
-        : duplicada
-          ? 'duplicada'
-          : forcarDuvida || cls.confianca < LIMITE_CONFIANCA
-            ? 'duvida'
-            : 'pendente',
-      motivoDuvida: pagamento
-        ? 'Pagamento da fatura: não é uma nova despesa. As compras individuais já estão listadas abaixo.'
-        : duplicada
-          ? 'Lançamento idêntico já existe nas suas movimentações.'
-          : cls.confianca < LIMITE_CONFIANCA
-            ? cls.motivo
-            : undefined,
-    });
-  };
-
-  if (doc === 'conta_consumo') {
-    const valor = dinheiro(r, 89, 320);
-    const venc = dataAleatoria(r, 0);
-    empurrar(`${emissor === 'Itaú' ? 'ENEL' : 'SABESP'} - FATURA MENSAL`, valor, venc);
-    return montar(arquivo, doc, emissor, transacoes, valor, venc, r);
+/** Validação de formato, tamanho e conteúdo real (assinatura do arquivo). */
+export async function validarArquivo(f: File): Promise<string | null> {
+  if (f.size === 0) return `"${f.name}": o arquivo está vazio.`;
+  if (f.size > TAMANHO_MAX) return `"${f.name}": ${(f.size / 1024 / 1024).toFixed(1)} MB. O limite é 15 MB por arquivo.`;
+  if (/\.(heic|heif)$/i.test(f.name) || /heic|heif/.test(f.type)) {
+    return `"${f.name}": fotos HEIC (iPhone) não são lidas pelo navegador. Exporte como JPG ou tire um print da tela.`;
   }
-
-  if (doc === 'comprovante') {
-    const valor = dinheiro(r, 25, 850);
-    const data = dataAleatoria(r, 0);
-    empurrar(r() > 0.5 ? 'PIX ENVIADO - TRANSFERENCIA' : 'PIX RECEBIDO - TRANSFERENCIA', valor, data, true);
-    return montar(arquivo, doc, emissor, transacoes, valor, undefined, r);
+  const cabecalho = new Uint8Array(await f.slice(0, 12).arrayBuffer());
+  const real = ASSINATURAS.find((a) => a.bytes.every((b, i) => cabecalho[i] === b));
+  if (!real) return `"${f.name}": formato não suportado. Envie PDF ou imagem PNG, JPG ou WEBP.`;
+  if (real.tipo === 'image/webp' && String.fromCharCode(...cabecalho.slice(8, 12)) !== 'WEBP') {
+    return `"${f.name}": o conteúdo não corresponde a uma imagem válida.`;
   }
-
-  const qtd = 6 + Math.floor(r() * 6);
-  const usados = new Set<number>();
-  for (let i = 0; i < qtd; i++) {
-    let idx = Math.floor(r() * CATALOGO.length);
-    let tentativas = 0;
-    while (usados.has(idx) && tentativas++ < 6) idx = (idx + 1) % CATALOGO.length;
-    usados.add(idx);
-    const [nome, min, max] = CATALOGO[idx];
-    const temParcela = r() > 0.78;
-    const total = 2 + Math.floor(r() * 9);
-    const atual = 1 + Math.floor(r() * total);
-    const descricao = temParcela ? `${nome} PARC ${String(atual).padStart(2, '0')}/${String(total).padStart(2, '0')}` : nome;
-    empurrar(descricao, dinheiro(r, min, max), dataAleatoria(r, doc === 'fatura_cartao' ? 1 : 0));
-  }
-
-  // Garante ao menos um lançamento ambíguo (exige confirmação do usuário)
-  if (!transacoes.some((t) => t.descricaoOriginal.includes('SERVDIGITAL'))) {
-    empurrar('MP*SERVDIGITAL', 89.9, dataAleatoria(r, doc === 'fatura_cartao' ? 1 : 0), true);
-  }
-  // E um crédito, para provar que nem todo documento é só despesa
-  empurrar('ESTORNO DE COMPRA NAO RECONHECIDA', dinheiro(r, 20, 160), dataAleatoria(r, 0));
-
-  if (doc === 'fatura_cartao') {
-    empurrar('PAGAMENTO RECEBIDO - OBRIGADO', dinheiro(r, 600, 1600), dataAleatoria(r, 1));
-  }
-
-  const total = transacoes
-    .filter((t) => !t.pagamentoFatura && t.tipo === 'despesa')
-    .reduce((s, t) => s + t.valor, 0);
-
-  const venc = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 5 + Math.floor(r() * 12));
-    return d.toISOString().slice(0, 10);
-  })();
-
-  return montar(arquivo, doc, emissor, transacoes, Math.round(total * 100) / 100, venc, r);
-}
-
-function montar(
-  arquivo: File,
-  documento: DocumentoAnalisado['documento'],
-  emissor: string,
-  transacoes: TransacaoExtraida[],
-  total: number,
-  vencimento: string | undefined,
-  r: () => number,
-): DocumentoAnalisado {
-  return {
-    id: uid(),
-    arquivoNome: arquivo.name,
-    arquivoTipo: arquivo.type || 'application/octet-stream',
-    arquivoUrl: URL.createObjectURL(arquivo),
-    paginas: documento === 'fatura_cartao' ? 1 + Math.floor(r() * 4) : 1,
-    emissor,
-    documento,
-    totalDocumento: total,
-    vencimento,
-    transacoes: transacoes.sort((a, b) => b.data.localeCompare(a.data)),
-    analisadoEm: new Date().toISOString(),
-    demo: true,
-  };
-}
-
-export const TIPOS_ACEITOS = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'application/pdf'];
-export const TAMANHO_MAX = 12 * 1024 * 1024; // 12 MB
-
-export function validarArquivo(f: File): string | null {
-  const extOk = /\.(png|jpe?g|webp|heic|pdf)$/i.test(f.name);
-  if (!TIPOS_ACEITOS.includes(f.type) && !extOk) {
-    return `"${f.name}": formato não suportado. Envie imagem (PNG, JPG, WEBP) ou PDF.`;
-  }
-  if (f.size > TAMANHO_MAX) {
-    return `"${f.name}": arquivo com ${(f.size / 1024 / 1024).toFixed(1)} MB. O limite é 12 MB.`;
-  }
-  if (f.size === 0) return `"${f.name}": arquivo vazio.`;
   return null;
 }
 
+export const tipoReal = (f: File) => (f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : 'image/*'));
+
+async function hashArquivos(arquivos: File[]): Promise<string> {
+  if (crypto?.subtle) {
+    const { sha256 } = await import('./leitura/extrair');
+    return sha256(arquivos);
+  }
+  // Contexto sem crypto.subtle (http fora de localhost): hash simples de nome+tamanho+data
+  const base = arquivos.map((a) => `${a.name}:${a.size}:${a.lastModified}`).join('|');
+  let h = 2166136261;
+  for (let i = 0; i < base.length; i++) { h ^= base.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return `fnv-${(h >>> 0).toString(16)}`;
+}
+
+function contexto(estado: EstadoApp) {
+  return {
+    regras: mapaRegras(estado.regras),
+    existentes: new Set(estado.movimentacoes.map((m) => m.hash ?? hashMov(m.data, m.valor, m.descricao))),
+  };
+}
+
+export interface OpcoesAnalise {
+  /** Usuário autorizou enviar ESTE documento ao serviço externo de IA. */
+  envioExterno: boolean;
+  onProgresso: (p: Progresso) => void;
+}
+
 /**
- * Analisa um documento. Usa o backend de IA quando `VITE_IA_ENDPOINT` está
- * configurado; caso contrário, a extração local de demonstração.
+ * Analisa um documento (um PDF, ou uma ou mais imagens que formam o mesmo documento).
  */
-export async function analisarDocumento(arquivo: File, estado: EstadoApp): Promise<DocumentoAnalisado> {
-  if (IA_CONFIGURADA) {
+export async function analisarDocumento(arquivos: File[], estado: EstadoApp, op: OpcoesAnalise): Promise<DocumentoAnalisado> {
+  const principal = arquivos[0];
+  const sha = await hashArquivos(arquivos);
+  const jaImportado = estado.documentos.find((d) => d.sha256 === sha && d.importadoEm);
+  const ehPdf = tipoReal(principal) === 'application/pdf';
+
+  const base = {
+    id: uid(),
+    arquivo: principal,
+    arquivoNome: arquivos.length > 1 ? `${principal.name} (+${arquivos.length - 1} página(s))` : principal.name,
+    arquivoTipo: tipoReal(principal),
+    arquivoUrl: URL.createObjectURL(principal),
+    sha256: sha,
+    analisadoEm: new Date().toISOString(),
+    jaImportadoEm: jaImportado?.importadoEm,
+    demo: false,
+  };
+
+  if (IA_CONFIGURADA && op.envioExterno) {
+    op.onProgresso({ etapa: 'Enviando ao serviço de IA configurado…', pct: 30 });
     const form = new FormData();
-    form.append('arquivo', arquivo);
+    arquivos.forEach((a) => form.append('arquivo', a));
     const resp = await fetch(`${IA_ENDPOINT}/documentos/analisar`, { method: 'POST', body: form });
-    if (!resp.ok) throw new Error(`Falha na análise do documento (HTTP ${resp.status}).`);
-    const dados = (await resp.json()) as DocumentoAnalisado;
-    return { ...dados, arquivoUrl: URL.createObjectURL(arquivo), demo: false };
+    if (!resp.ok) throw new Error(`O serviço de IA recusou o documento (HTTP ${resp.status}). Tente a leitura local.`);
+    const dados = (await resp.json()) as Partial<DocumentoAnalisado>;
+    op.onProgresso({ etapa: 'Conferindo o resultado…', pct: 95 });
+    const ctx = contexto(estado);
+    const transacoes = (dados.transacoes ?? []).map((t) => marcarDuplicada({ ...t, id: t.id ?? uid() }, ctx.existentes));
+    return {
+      ...base,
+      paginas: dados.paginas ?? arquivos.length,
+      documento: dados.documento ?? 'desconhecido',
+      emissor: dados.emissor,
+      totalDocumento: dados.totalDocumento,
+      vencimento: dados.vencimento,
+      linhaDigitavel: dados.linhaDigitavel,
+      transacoes,
+      metodo: 'servico-ia',
+      avisos: dados.avisos ?? [],
+    };
   }
 
-  // Demonstração: tempo de processamento simulado para exercitar os estados de carregamento
-  await new Promise((r) => setTimeout(r, 900 + Math.random() * 900));
-  return extrairDemo(arquivo, estado);
+  const { extrairTextoPdf, extrairTextoImagens } = await import('./leitura/extrair');
+  const lido = ehPdf ? await extrairTextoPdf(principal, op.onProgresso) : await extrairTextoImagens(arquivos, op.onProgresso);
+  op.onProgresso({ etapa: 'Identificando transações e categorias…', pct: 97 });
+  const r = interpretarTexto(lido.texto, contexto(estado));
+
+  const avisos = [...r.avisos];
+  if (lido.metodo === 'ocr-local') {
+    avisos.unshift('Texto obtido por OCR: números e nomes podem ter erros de leitura. Confira valores e datas.');
+  }
+
+  return {
+    ...base,
+    paginas: lido.paginas,
+    documento: r.documento,
+    emissor: r.emissor,
+    totalDocumento: r.totalDocumento,
+    vencimento: r.vencimento,
+    linhaDigitavel: r.linhaDigitavel,
+    transacoes: r.transacoes,
+    metodo: lido.metodo,
+    textoExtraido: lido.texto,
+    avisos,
+  };
+}
+
+function marcarDuplicada(t: TransacaoExtraida, existentes: Set<string>): TransacaoExtraida {
+  if (t.status === 'ignorada') return t;
+  return existentes.has(hashMov(t.data, t.valor, t.descricao))
+    ? { ...t, status: 'duplicada', motivoDuvida: 'Lançamento idêntico já existe nas suas movimentações.' }
+    : t;
+}
+
+/** Documento vazio para lançamento manual (quando a leitura não for possível). */
+export function documentoManual(arquivos: File[]): DocumentoAnalisado {
+  const principal = arquivos[0];
+  return {
+    id: uid(),
+    arquivo: principal,
+    arquivoNome: principal?.name ?? 'Lançamento manual',
+    arquivoTipo: principal ? tipoReal(principal) : '',
+    arquivoUrl: principal ? URL.createObjectURL(principal) : undefined,
+    paginas: arquivos.length || 1,
+    documento: 'desconhecido',
+    transacoes: [],
+    analisadoEm: new Date().toISOString(),
+    metodo: 'manual',
+    avisos: ['Lançamento manual: adicione as transações olhando o documento ao lado.'],
+    demo: false,
+  };
+}
+
+/**
+ * Fatura de EXEMPLO, fictícia, para conhecer o fluxo sem enviar nenhum arquivo.
+ * O texto passa pelo mesmo interpretador usado nos documentos reais.
+ */
+export function documentoExemplo(estado: EstadoApp): DocumentoAnalisado {
+  const hoje = new Date();
+  const venc = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + 9);
+  const dd = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const dia = (n: number) => dd(new Date(venc.getFullYear(), venc.getMonth() - 1, n));
+  const texto = [
+    'BANCO EXEMPLO S.A. — DOCUMENTO FICTÍCIO DE DEMONSTRAÇÃO',
+    'Fatura do cartão de crédito  Mastercard final 0000',
+    `Vencimento ${dd(venc)}/${venc.getFullYear()}`,
+    'Total da fatura R$ 1.037,96',
+    'Lançamentos',
+    `${dia(2)} PAGAMENTO RECEBIDO - OBRIGADO -1.180,40`,
+    `${dia(3)} SUPERMERCADO BOM PRECO 312,45`,
+    `${dia(5)} IFOOD *RESTAURANTE SABOR 58,90`,
+    `${dia(6)} UBER *TRIP 23,70`,
+    `${dia(8)} NETFLIX.COM 44,90`,
+    `${dia(10)} MP*SERVDIGITAL 89,90`,
+    `${dia(12)} DROGARIA CENTRAL 76,30`,
+    `${dia(14)} LOJA ONLINE EXEMPLO PARC 02/05 149,90`,
+    `${dia(15)} PAG*JOSEMARIA 120,00`,
+    `${dia(18)} POSTO AVENIDA COMBUSTIVEL 180,00`,
+    `${dia(20)} ESTORNO COMPRA NAO RECONHECIDA -18,09`,
+  ].join('\n');
+  const r = interpretarTexto(texto, { ...contexto(estado), hoje });
+  return {
+    id: uid(),
+    arquivoNome: 'fatura-exemplo-ficticia.pdf',
+    arquivoTipo: 'text/plain',
+    paginas: 1,
+    documento: r.documento,
+    emissor: 'Banco Exemplo (fictício)',
+    totalDocumento: r.totalDocumento,
+    vencimento: r.vencimento,
+    transacoes: r.transacoes,
+    analisadoEm: new Date().toISOString(),
+    metodo: 'exemplo-demo',
+    textoExtraido: texto,
+    avisos: ['Documento de EXEMPLO com dados fictícios, lido pelo mesmo interpretador usado nos seus arquivos.', ...r.avisos],
+    demo: true,
+  };
 }

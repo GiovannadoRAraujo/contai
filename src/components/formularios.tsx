@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Campo, Entrada, Modal, Selecao } from './ui';
 import { useApp } from '@/store/app';
-import { CATEGORIAS_DESPESA, CATEGORIAS_RECEITA } from '@/lib/categorias';
+import { nomesCategorias, normalizar } from '@/lib/categorias';
 import { hoje, parseBRL, uid } from '@/lib/format';
 import type { Investimento, Meta, Modalidade, Movimentacao, TipoMov } from '@/types';
 
@@ -12,10 +12,8 @@ export function ModalMovimentacao({
   aberto, onFechar, tipo, editando,
 }: { aberto: boolean; onFechar: () => void; tipo: TipoMov; editando?: Movimentacao | null }) {
   const { estado, dispatch, avisar } = useApp();
-  const categorias = [
-    ...(tipo === 'receita' ? CATEGORIAS_RECEITA : CATEGORIAS_DESPESA),
-    ...estado.categoriasCustom,
-  ];
+  const tipoAtual = editando?.tipo ?? tipo;
+  const categorias = nomesCategorias(estado.categorias, tipoAtual);
 
   const vazio = {
     descricao: '', valor: '', data: hoje(),
@@ -25,10 +23,14 @@ export function ModalMovimentacao({
   };
   const [f, setF] = useState(vazio);
   const [erros, setErros] = useState<Record<string, string>>({});
+  const [novaCategoria, setNovaCategoria] = useState<string | null>(null);
+  const [aprender, setAprender] = useState(true);
 
   useEffect(() => {
     if (!aberto) return;
     setErros({});
+    setNovaCategoria(null);
+    setAprender(true);
     setF(editando
       ? {
         descricao: editando.descricao,
@@ -48,18 +50,32 @@ export function ModalMovimentacao({
     if (!f.descricao.trim()) novosErros.descricao = 'Informe uma descrição.';
     const valor = parseBRL(f.valor);
     if (!valor || valor <= 0) novosErros.valor = 'Informe um valor maior que zero.';
-    if (!f.data) novosErros.data = 'Informe a data.';
+    if (valor > 100_000_000) novosErros.valor = 'Valor muito alto — confira os dígitos.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.data) || Number.isNaN(new Date(`${f.data}T00:00:00`).getTime())) novosErros.data = 'Informe uma data válida.';
+    else if (f.data < '2000-01-01' || f.data > '2100-12-31') novosErros.data = 'Data fora do intervalo aceito.';
     if (!f.contaId) novosErros.contaId = 'Selecione uma conta.';
+    const categoriaFinal = novaCategoria !== null ? novaCategoria.trim() : f.categoria;
+    if (!categoriaFinal) novosErros.categoria = 'Informe o nome da nova categoria.';
     setErros(novosErros);
     if (Object.keys(novosErros).length) return;
 
+    if (novaCategoria !== null && !categorias.includes(categoriaFinal)) {
+      dispatch({ t: 'categoria.add', nome: categoriaFinal, tipo: tipoAtual });
+    }
+    // Correção de categoria em lançamento importado: opcionalmente vira regra
+    if (editando && editando.origem !== 'manual' && editando.categoria !== categoriaFinal && aprender) {
+      const padrao = normalizar(editando.observacao?.replace(/^Original:\s*/, '') ?? editando.descricao).replace(/\d{3,}/g, '').trim().slice(0, 40);
+      if (padrao) dispatch({ t: 'regra.add', padrao, categoria: categoriaFinal, origem: 'movimentacao' });
+    }
+
     const mov: Movimentacao = {
+      ...(editando ?? {}),
       id: editando?.id ?? uid(),
-      tipo,
+      tipo: tipoAtual,
       descricao: f.descricao.trim(),
       valor,
       data: f.data,
-      categoria: f.categoria,
+      categoria: categoriaFinal,
       contaId: f.contaId,
       origem: editando?.origem ?? 'manual',
       observacao: f.observacao.trim() || undefined,
@@ -94,10 +110,18 @@ export function ModalMovimentacao({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Campo rotulo="Categoria">
-            <Selecao value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })}>
-              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Selecao>
+          <Campo rotulo="Categoria" erro={erros.categoria}>
+            {novaCategoria === null ? (
+              <Selecao value={f.categoria} onChange={(e) => (e.target.value === '__nova__' ? setNovaCategoria('') : setF({ ...f, categoria: e.target.value }))}>
+                {[...new Set([...categorias, f.categoria])].map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value="__nova__">+ Nova categoria…</option>
+              </Selecao>
+            ) : (
+              <div className="flex gap-1.5">
+                <Entrada value={novaCategoria} onChange={(e) => setNovaCategoria(e.target.value)} placeholder="Ex.: Pets" autoFocus />
+                <button type="button" className="btn-ghost px-2.5" onClick={() => setNovaCategoria(null)} aria-label="Cancelar nova categoria">×</button>
+              </div>
+            )}
           </Campo>
           <Campo rotulo="Conta" erro={erros.contaId}>
             <Selecao value={f.contaId} onChange={(e) => setF({ ...f, contaId: e.target.value })}>
@@ -105,6 +129,13 @@ export function ModalMovimentacao({
             </Selecao>
           </Campo>
         </div>
+
+        {editando && editando.origem !== 'manual' && editando.categoria !== (novaCategoria ?? f.categoria) && (
+          <label className="flex items-start gap-2 rounded-xl border border-roxo/30 bg-roxo/[0.06] p-3 text-[12px] text-txt2">
+            <input type="checkbox" checked={aprender} onChange={(e) => setAprender(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#7C3AED]" />
+            Usar esta correção como referência para lançamentos semelhantes em próximas importações
+          </label>
+        )}
 
         <Campo rotulo="Observação (opcional)">
           <Entrada value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} placeholder="Anotação interna" />
