@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import Logo from './Logo';
+import { IndicadorSync } from './Conta';
 import { useApp } from '@/store/app';
 import { useNav } from '@/store/nav';
 import { addMeses, mesAtual, rotuloMes } from '@/lib/format';
@@ -78,6 +79,7 @@ export default function Topbar() {
           <Logo tamanho={28} />
         </button>
         <div className="flex items-center gap-1">
+          <IndicadorSync compacto />
           {botaoSino('h-9 w-9 rounded-lg hover:bg-card2')}
           <button type="button" onClick={() => ir('configuracoes')} aria-label="Configurações"
             className="grid h-9 w-9 place-items-center rounded-lg text-txt2 hover:bg-card2 hover:text-txt">
@@ -100,6 +102,7 @@ export default function Topbar() {
 
         <div className="hidden items-center gap-3 lg:flex">
           {seletor('w-[190px] py-2.5')}
+          <IndicadorSync />
           <div className="relative">
             {botaoSino('h-10 w-10 rounded-xl border border-line bg-card hover:border-roxo/50')}
             {sinos && <PainelAvisos avisos={avisos} onIr={(r) => ir(r)} />}

@@ -11,6 +11,8 @@ import { usoArmazenamento, pedirPersistencia } from '@/lib/db';
 import { baixar, gerarBackup, gravarArquivosDoBackup, validarBackup, type ResultadoValidacao } from '@/lib/backup';
 import { CATEGORIAS_DESPESA, CATEGORIAS_RECEITA } from '@/lib/categorias';
 import type { Conta } from '@/types';
+import { CartaoConta } from '@/components/Conta';
+import { useNuvem } from '@/store/nuvem';
 
 const CORES = ['#8B5CF6', '#27D9D0', '#2DE2A6', '#FF9F43', '#F052A0', '#60A5FA'];
 
@@ -18,6 +20,7 @@ export default function Configuracoes() {
   return (
     <div className="grid gap-5 pb-8 xl:grid-cols-2">
       <div className="space-y-5">
+        <CartaoConta />
         <ArmazenamentoLocal />
         <PrivacidadeIA />
         <Contas />
@@ -36,6 +39,7 @@ export default function Configuracoes() {
 /* --------------------------- Armazenamento --------------------------- */
 function ArmazenamentoLocal() {
   const { avisar, persistencia } = useApp();
+  const { usuario } = useNuvem();
   const [uso, setUso] = useState<Awaited<ReturnType<typeof usoArmazenamento>>>(null);
 
   useEffect(() => { void usoArmazenamento().then(setUso).catch(() => setUso(null)); }, []);
@@ -43,14 +47,25 @@ function ArmazenamentoLocal() {
   return (
     <Card className="p-5">
       <CabecalhoCard titulo="Onde seus dados ficam" icone={<HardDrive size={16} className="text-roxo-luz" />} />
+      {usuario ? (
+        <ul className="space-y-2 text-[12.5px] leading-relaxed text-txt2">
+          <li className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-verde" />
+            <span>Os dados ficam <strong className="text-txt">neste navegador (IndexedDB)</strong> e também <strong className="text-txt">na sua conta</strong> ({usuario.email}), num banco Supabase onde cada usuário só acessa as próprias linhas.</span></li>
+          <li className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-verde" />
+            <span>Celular e computador ficam iguais ao entrar com a mesma conta. Sem internet, as alterações esperam e sobem depois.</span></li>
+          <li className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0 text-laranja" />
+            <span>Não há criptografia de ponta a ponta: quem administra o projeto Supabase tem acesso técnico ao banco. Você pode excluir a conta e todos os dados do servidor em “Conta e sincronização”.</span></li>
+        </ul>
+      ) : (
       <ul className="space-y-2 text-[12.5px] leading-relaxed text-txt2">
         <li className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-verde" />
-          Tudo fica salvo <strong className="text-txt">somente neste navegador, neste dispositivo</strong>, no banco local IndexedDB. Não há servidor do contAI guardando seus dados.</li>
+          <span>Tudo fica salvo <strong className="text-txt">somente neste navegador, neste dispositivo</strong>, no banco local IndexedDB. Não há servidor do contAI guardando seus dados.</span></li>
         <li className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0 text-laranja" />
           <span><strong className="text-txt">Não há sincronização</strong> entre celular e computador, nem entre navegadores diferentes, e isto <strong className="text-txt">não é um backup na nuvem</strong>. Limpar os dados do site, usar janela anônima ou trocar de aparelho faz os dados sumirem — exporte backups.</span></li>
         <li className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0 text-laranja" />
-          <span>O contAI funciona <strong className="text-txt">sem login</strong>. Qualquer pessoa com acesso a este navegador consegue ver os dados. Se o app estiver publicado na internet, abrir o endereço <strong className="text-txt">não equivale a ter uma conta privada</strong>: cada navegador tem os seus próprios dados locais.</span></li>
+          <span>O contAI funciona <strong className="text-txt">sem login</strong>. Qualquer pessoa com acesso a este navegador consegue ver os dados. Se o app estiver publicado na internet, abrir o endereço <strong className="text-txt">não equivale a ter uma conta privada</strong>: cada navegador tem os seus próprios dados locais. Para usar em mais de um aparelho, crie uma conta opcional em “Conta e sincronização”.</span></li>
       </ul>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-card2/50 p-3 text-[12px] text-txt2">
         <span className="flex items-center gap-1.5">
           <span className={`h-2 w-2 rounded-full ${persistencia === 'erro' ? 'bg-rosa' : 'bg-verde'}`} />
@@ -494,6 +509,7 @@ function Demonstracao() {
 /* ----------------------------- Zona de perigo ----------------------------- */
 function ZonaPerigo() {
   const { apagarTudo, avisar } = useApp();
+  const nuvem = useNuvem();
   const [aberto, setAberto] = useState(false);
   const [texto, setTexto] = useState('');
   const [apagando, setApagando] = useState(false);
@@ -504,6 +520,10 @@ function ZonaPerigo() {
       <p className="text-[12.5px] leading-relaxed text-txt2">
         Remove deste navegador todas as movimentações, contas, faturas e arquivos, metas, orçamentos, investimentos,
         preferências, conversas e memória do assistente. Não pode ser desfeito.
+        {nuvem.usuario && (
+          <> Com a conta conectada, este aparelho também <strong className="text-txt">sai da conta</strong>; os dados continuam no servidor.
+          Para apagá-los de lá, use “Excluir conta”.</>
+        )}
       </p>
       <button type="button" className="btn mt-3 border border-rosa/40 bg-rosa/10 text-rosa hover:bg-rosa/20" onClick={() => { setTexto(''); setAberto(true); }}>
         <Trash2 size={15} /> Apagar todos os dados
@@ -520,7 +540,8 @@ function ZonaPerigo() {
             onClick={async () => {
               setApagando(true);
               try {
-                await apagarTudo();
+                if (nuvem.usuario) await nuvem.sair(true);
+                else await apagarTudo();
                 avisar('Todos os dados locais foram apagados.', 'info');
                 setAberto(false);
               } catch (e) {

@@ -112,19 +112,23 @@ export function Modal({
   children: React.ReactNode; largura?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Guardado em ref: o efeito abaixo só pode rodar ao abrir/fechar. Se dependesse de
+  // onFechar (geralmente uma função nova a cada render), roubaria o foco dos campos a cada tecla.
+  const fecharRef = useRef(onFechar);
+  fecharRef.current = onFechar;
 
   useEffect(() => {
     if (!aberto) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onFechar();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && fecharRef.current();
     document.addEventListener('keydown', onKey);
     const antes = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    ref.current?.focus();
+    if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = antes;
     };
-  }, [aberto, onFechar]);
+  }, [aberto]);
 
   if (!aberto) return null;
 

@@ -3,7 +3,8 @@
 Aplicativo web no estilo **Dark Neon Finance Dashboard**, seguindo a imagem de referência
 `Dashboard Financeiro contAI em Neon.png`. React + TypeScript + Vite + Tailwind CSS + Recharts + Lucide.
 
-**Acesso aberto:** não há login, cadastro nem autenticação. O endereço abre direto no dashboard.
+**Acesso aberto:** o endereço abre direto no dashboard, sem login. Uma **conta opcional** (e-mail e senha)
+sincroniza os dados entre celular e computador para quem quiser.
 
 ## Como executar
 
@@ -16,7 +17,8 @@ npm run dev        # http://localhost:5173
 npm run build      # build de produção em dist/
 npm run preview    # serve o build
 npm run typecheck  # checagem de tipos
-npm test           # testes (interpretador de documentos e simulador)
+npm test           # testes do app (documentos, simulador, mesclagem da sincronização)
+npm run test:db    # testes das migrações em PGlite (RLS, sincronização, exclusão de conta)
 ```
 
 ## Funcionalidades
@@ -35,6 +37,7 @@ npm test           # testes (interpretador de documentos e simulador)
 | Planejamento (orçamento, limites, metas, recorrentes, previstas) | Funcional |
 | Backup (exportar/importar com validação), CSV, apagar tudo | Funcional |
 | Versão mobile (layout próprio + navegação inferior) | Funcional |
+| Conta opcional e sincronização entre aparelhos | Funcional no app; **exige aplicar a migração e configurar o Supabase** (abaixo) |
 
 ## Armazenamento e backup
 
@@ -49,13 +52,46 @@ npm test           # testes (interpretador de documentos e simulador)
 - **Dados de demonstração** só entram quando você pede, ficam marcados como “Demo” e podem ser removidos
   sem afetar os registros reais.
 
-### Limitações do acesso sem autenticação
+### Sem conta (padrão)
 
 - Os dados existem só naquele navegador/dispositivo: não há sincronização nem backup na nuvem.
 - Quem usar o mesmo navegador vê os dados. Publicar o app na internet **não** cria contas privadas:
   cada visitante tem os próprios dados locais.
 - Limpar os dados do site, usar janela anônima ou o navegador descartar o armazenamento apaga tudo —
   exporte backups. Configurações permite pedir armazenamento persistente.
+
+## Conta opcional e sincronização
+
+Em **Configurações › Conta e sincronização**: criar conta, entrar, recuperar senha, sair (mantendo ou
+apagando os dados do aparelho) e excluir a conta com todos os dados do servidor.
+
+- **Local-first:** tudo continua sendo gravado primeiro no IndexedDB. Com a conta conectada, cada alteração
+  entra numa fila persistente e sobe em segundo plano; sem internet, espera e sobe quando a conexão volta.
+- **Conflitos:** vale a alteração mais recente (`modificadoEm`), decidida no servidor. Exclusões viajam como
+  marcas de exclusão. Dados de demonstração nunca sobem.
+- **Primeiro login num aparelho:** o que já existe nele é enviado e se junta à conta — nada é apagado.
+- **O que sincroniza:** todos os registros, arquivos das faturas (bucket privado), histórico e memória do
+  assistente, regras e correções, e as preferências compartilháveis (o consentimento de envio a IA externa
+  e o aviso de privacidade continuam por aparelho).
+- **Segurança:** só a chave publicável vai para o navegador (o app se recusa a iniciar com uma chave
+  secreta). RLS no banco: cada usuário só lê e grava as próprias linhas; `anon` não tem acesso.
+  Não há criptografia de ponta a ponta — o administrador do projeto Supabase tem acesso técnico ao banco.
+
+### Como ativar
+
+1. **Aplicar a migração** `supabase/migrations/20261015120000_sincronizacao.sql` no projeto Supabase
+   (cria `registros_sync`, as funções `sincronizar_registros` e `excluir_minha_conta`, o bucket privado
+   `documentos` e as políticas). Com a CLI: `npx supabase@latest login`, `npx supabase@latest link` e
+   `npx supabase@latest db push`. As tabelas tipadas das migrações 001–003 continuam lá, sem uso.
+2. **Auth › Providers › Email:** ativar e-mail e senha e a confirmação de e-mail; senha mínima de 8 caracteres.
+3. **Auth › URL Configuration:** *Site URL* `https://contai-silk.vercel.app` e, em *Redirect URLs*, o mesmo
+   endereço e `http://localhost:5173`.
+4. **Auth › SMTP:** configurar um provedor de e-mail (Resend, Brevo, SES…). O envio padrão do Supabase
+   tem limite muito baixo de e-mails por hora e não serve para usuários reais.
+5. **Vercel › Settings › Environment Variables:** `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`
+   (a chave **publicável**, `sb_publishable_…`), e fazer um novo deploy.
+
+Sem essas variáveis, o cartão de conta explica que a sincronização não está configurada e o app segue só local.
 
 ## Integrações
 
@@ -72,8 +108,7 @@ npm test           # testes (interpretador de documentos e simulador)
 ## Para produção
 
 1. Backend de IA (OCR + LLM) com as credenciais no servidor, política de retenção e consentimento.
-2. Se houver sincronização/banco remoto, implementar isolamento por usuário — o que exige alguma forma
-   de identificação; enquanto o requisito de acesso aberto vigorar, os dados permanecem locais.
+2. Concluir a ativação da conta (acima), com SMTP próprio, política de privacidade e termos (LGPD).
 3. Criptografia local opcional (ex.: senha de bloqueio do app) para dispositivos compartilhados.
 4. Hospedar o worker e o modelo do Tesseract junto com o app para não depender da CDN.
 5. Divisão do bundle (Recharts no chunk principal) e monitoramento de erros.

@@ -7,6 +7,7 @@ import { COLECOES } from '@/types';
 import { dadosDemo } from '@/data/demo';
 import { uid } from '@/lib/format';
 import * as db from '@/lib/db';
+import { aplicarRemotos, PREFS_SINCRONIZADAS, type LinhaRemota } from '@/lib/nuvem/mesclar';
 
 export type Acao =
   | { t: 'carregar'; estado: EstadoApp }
@@ -43,7 +44,8 @@ export type Acao =
   | { t: 'memoria'; dados: Partial<MemoriaAssistente> }
   | { t: 'memoria.limpar' }
   | { t: 'demo.carregar' }
-  | { t: 'demo.remover' };
+  | { t: 'demo.remover' }
+  | { t: 'sync.aplicar'; linhas: LinhaRemota[] };
 
 const agora = () => new Date().toISOString();
 
@@ -62,8 +64,11 @@ function reducer(e: EstadoApp, a: Acao): EstadoApp {
   switch (a.t) {
     case 'carregar':
       return a.estado;
-    case 'prefs':
-      return { ...e, prefs: { ...e.prefs, ...a.dados } };
+    case 'prefs': {
+      // Só os campos compartilhados entre aparelhos contam como alteração sincronizável
+      const sincronizada = PREFS_SINCRONIZADAS.some((k) => k in a.dados && a.dados[k] !== e.prefs[k]);
+      return { ...e, prefs: { ...e.prefs, ...a.dados, ...(sincronizada ? { modificadoEm: agora() } : {}) } };
+    }
 
     case 'mov.add':
       return { ...e, movimentacoes: [...a.movs.map(novo), ...e.movimentacoes].sort(porData) };
@@ -153,11 +158,13 @@ function reducer(e: EstadoApp, a: Acao): EstadoApp {
     case 'chat.add':
       return { ...e, conversas: [...e.conversas, novo(a.msg)] };
     case 'chat.limpar':
-      return { ...e, conversas: [], memoria: { ...e.memoria, contexto: undefined } };
+      return { ...e, conversas: [], memoria: { ...e.memoria, contexto: undefined, modificadoEm: agora() } };
     case 'memoria':
-      return { ...e, memoria: { ...e.memoria, ...a.dados } };
+      return { ...e, memoria: { ...e.memoria, ...a.dados, modificadoEm: agora() } };
     case 'memoria.limpar':
-      return { ...e, memoria: { preferencias: [] }, regras: [], correcoes: [] };
+      return { ...e, memoria: { preferencias: [], modificadoEm: agora() }, regras: [], correcoes: [] };
+    case 'sync.aplicar':
+      return aplicarRemotos(e, a.linhas);
 
     case 'demo.carregar': {
       const demo = dadosDemo();
@@ -209,6 +216,8 @@ interface Ctx {
   restaurar: (estado: EstadoApp) => Promise<void>;
   /** Apaga todos os dados locais (inclusive arquivos) e recomeça vazio. */
   apagarTudo: () => Promise<void>;
+  /** Muda quando o estado inteiro é substituído (backup restaurado ou dados apagados). */
+  geracao: number;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -219,6 +228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [persistencia, setPersistencia] = useState<StatusPersistencia>('carregando');
   const [erroPersistencia, setErroPersistencia] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [geracao, setGeracao] = useState(0);
   const timers = useRef<number[]>([]);
   const persistido = useRef<EstadoApp | null>(null);
   const fila = useRef<Promise<unknown>>(Promise.resolve());
@@ -284,6 +294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await db.substituirTudo(novoEstado);
     const final = comContaPadrao(novoEstado);
     persistido.current = novoEstado;
+    setGeracao((g) => g + 1);
     dispatch({ t: 'carregar', estado: final });
   }, []);
 
@@ -292,6 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await db.apagarTudo();
     const vazio = db.estadoVazio();
     persistido.current = vazio;
+    setGeracao((g) => g + 1);
     dispatch({ t: 'carregar', estado: comContaPadrao(vazio) });
   }, []);
 
@@ -312,8 +324,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       temDemo,
       restaurar,
       apagarTudo,
+      geracao,
     }),
-    [estado, toasts, avisar, persistencia, erroPersistencia, temDemo, restaurar, apagarTudo],
+    [estado, toasts, avisar, persistencia, erroPersistencia, temDemo, restaurar, apagarTudo, geracao],
   );
 
   if (!carregado) return <TelaCarregamento />;
