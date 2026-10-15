@@ -11,6 +11,9 @@ import { useApp } from '@/store/app';
 import { useNav } from '@/store/nav';
 import { useNuvem } from '@/store/nuvem';
 import { ModalNovaSenha } from '@/components/Conta';
+import TelaEntrada from '@/components/TelaEntrada';
+import Privacidade from '@/pages/Privacidade';
+import { Marca } from '@/components/Logo';
 
 const telas = {
   movimentacoes: () => import('@/pages/Movimentacoes'),
@@ -49,9 +52,14 @@ class LimiteDeErro extends Component<{ children: ReactNode; chave: string }, { e
   }
 }
 
-/** Acesso aberto: não há login. O app abre direto no dashboard. */
+/**
+ * Com a conta configurada (Supabase), é preciso entrar para usar o app: cada
+ * pessoa tem os próprios dados. Sem a configuração, o app roda só local.
+ * A página de termos e privacidade é sempre pública.
+ */
 export default function App() {
-  const { rota, modal, fechar } = useNav();
+  const { rota, modal, fechar, ir } = useNav();
+  const nuvem = useNuvem();
 
   // Baixa as demais telas em segundo plano para que funcionem mesmo se a conexão cair depois
   useEffect(() => {
@@ -59,6 +67,37 @@ export default function App() {
     const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
     if (w.requestIdleCallback) w.requestIdleCallback(carregar); else window.setTimeout(carregar, 1500);
   }, []);
+
+  // Ao sair da conta, a próxima pessoa começa pelo Início (não pela tela onde a anterior estava)
+  const conectado = !!nuvem.usuario;
+  useEffect(() => {
+    if (!conectado && nuvem.configurada && rota !== 'inicio' && rota !== 'privacidade') ir('inicio');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conectado]);
+
+  if (rota === 'privacidade') {
+    return (
+      <>
+        <Privacidade onVoltar={() => (window.history.length > 1 ? window.history.back() : ir('inicio'))} />
+        <Avisos />
+      </>
+    );
+  }
+  if (nuvem.configurada && !nuvem.sessaoVerificada) {
+    return (
+      <div className="relative z-10 grid min-h-screen place-items-center" role="status" aria-label="Verificando sua sessão">
+        <span className="animate-pulse"><Marca tamanho={56} /></span>
+      </div>
+    );
+  }
+  if (nuvem.configurada && !nuvem.usuario) {
+    return (
+      <>
+        <TelaEntrada />
+        <Avisos />
+      </>
+    );
+  }
 
   return (
     <div className="relative z-10 min-h-screen">

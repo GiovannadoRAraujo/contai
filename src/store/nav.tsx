@@ -3,12 +3,12 @@ import { mesAtual } from '@/lib/format';
 
 export type Rota =
   | 'inicio' | 'movimentacoes' | 'faturas' | 'planejamento'
-  | 'investimentos' | 'assistente' | 'configuracoes';
+  | 'investimentos' | 'assistente' | 'configuracoes' | 'privacidade';
 
 export type ModalGlobal =
   | 'receita' | 'despesa' | 'meta' | 'investimento' | 'simulador' | null;
 
-const ROTAS: Rota[] = ['inicio', 'movimentacoes', 'faturas', 'planejamento', 'investimentos', 'assistente', 'configuracoes'];
+const ROTAS: Rota[] = ['inicio', 'movimentacoes', 'faturas', 'planejamento', 'investimentos', 'assistente', 'configuracoes', 'privacidade'];
 
 interface NavCtx {
   rota: Rota;
