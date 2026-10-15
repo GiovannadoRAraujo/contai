@@ -137,6 +137,8 @@ export interface Preferencias {
   ocultarValores: boolean;
   avisoPrivacidadeVisto: boolean;
   taxas?: Partial<Record<'CDI' | 'SELIC' | 'IPCA', TaxaObtida>>;
+  /** Última alteração dos campos sincronizados entre aparelhos. */
+  modificadoEm?: string;
 }
 
 /* ---------- Importação de documentos ---------- */
@@ -211,6 +213,7 @@ export interface ContextoConversa {
 export interface MemoriaAssistente {
   preferencias: PreferenciaAprendida[];
   contexto?: ContextoConversa;
+  modificadoEm?: string;
 }
 
 /* ---------- Estado do aplicativo ---------- */

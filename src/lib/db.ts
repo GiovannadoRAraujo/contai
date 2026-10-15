@@ -11,9 +11,11 @@ import { COLECOES, type Colecao, type EstadoApp, type MemoriaAssistente, type Pr
  */
 
 export const NOME_BANCO = 'contai';
-const VERSAO = 1;
+const VERSAO = 2;
 const KV = 'kv';
 const ARQUIVOS = 'arquivos';
+/** Fila de envio da sincronização (só usada com uma conta conectada). */
+const FILA = 'fila_sync';
 
 export const PREFS_PADRAO: Preferencias = {
   consentimentoIA: true,
@@ -63,6 +65,7 @@ export function abrir(): Promise<IDBDatabase> {
       for (const c of COLECOES) if (!db.objectStoreNames.contains(c)) db.createObjectStore(c, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(KV)) db.createObjectStore(KV);
       if (!db.objectStoreNames.contains(ARQUIVOS)) db.createObjectStore(ARQUIVOS);
+      if (!db.objectStoreNames.contains(FILA)) db.createObjectStore(FILA, { keyPath: 'chave' });
     };
     r.onsuccess = () => {
       const db = r.result;
@@ -141,8 +144,8 @@ export async function substituirTudo(estado: EstadoApp): Promise<void> {
 /** Apaga todos os dados locais do contAI, inclusive os arquivos. */
 export async function apagarTudo(): Promise<void> {
   const db = await abrir();
-  const tx = db.transaction([...COLECOES, KV, ARQUIVOS], 'readwrite');
-  for (const s of [...COLECOES, KV, ARQUIVOS]) tx.objectStore(s).clear();
+  const tx = db.transaction([...COLECOES, KV, ARQUIVOS, FILA], 'readwrite');
+  for (const s of [...COLECOES, KV, ARQUIVOS, FILA]) tx.objectStore(s).clear();
   await fim(tx);
 }
 
@@ -182,4 +185,63 @@ export async function pedirPersistencia(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/* ------------------------ Sincronização (fila e metadados) ------------------------ */
+
+export interface ItemFila {
+  chave: string;            // "<colecao>/<id>"
+  colecao: string;
+  id: string;
+  dados?: unknown;
+  modificado_em: string;
+  excluido: boolean;
+}
+
+export async function enfileirar(itens: Array<Omit<ItemFila, 'chave'>>): Promise<void> {
+  if (!itens.length) return;
+  const db = await abrir();
+  const tx = db.transaction(FILA, 'readwrite');
+  for (const i of itens) tx.objectStore(FILA).put({ ...i, chave: `${i.colecao}/${i.id}` });
+  await fim(tx);
+}
+
+export async function lerFila(): Promise<ItemFila[]> {
+  const db = await abrir();
+  return req(db.transaction(FILA, 'readonly').objectStore(FILA).getAll()) as Promise<ItemFila[]>;
+}
+
+/** Remove da fila os itens enviados — exceto os que mudaram de novo durante o envio. */
+export async function confirmarEnvio(enviados: ItemFila[]): Promise<void> {
+  const db = await abrir();
+  const tx = db.transaction(FILA, 'readwrite');
+  const store = tx.objectStore(FILA);
+  for (const e of enviados) {
+    const r = store.get(e.chave);
+    r.onsuccess = () => {
+      const atual = r.result as ItemFila | undefined;
+      if (atual && atual.modificado_em === e.modificado_em && atual.excluido === e.excluido) store.delete(e.chave);
+    };
+  }
+  await fim(tx);
+}
+
+export async function limparFila(): Promise<void> {
+  const db = await abrir();
+  const tx = db.transaction(FILA, 'readwrite');
+  tx.objectStore(FILA).clear();
+  await fim(tx);
+}
+
+export async function lerMeta<T>(chave: string): Promise<T | undefined> {
+  const db = await abrir();
+  return req(db.transaction(KV, 'readonly').objectStore(KV).get(`meta:${chave}`)) as Promise<T | undefined>;
+}
+
+export async function gravarMeta(chave: string, valor: unknown): Promise<void> {
+  const db = await abrir();
+  const tx = db.transaction(KV, 'readwrite');
+  if (valor === undefined) tx.objectStore(KV).delete(`meta:${chave}`);
+  else tx.objectStore(KV).put(valor, `meta:${chave}`);
+  await fim(tx);
 }

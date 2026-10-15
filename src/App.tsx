@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Component, Suspense, lazy, useEffect, type ReactNode } from 'react';
 import { AlertTriangle, Database, ShieldCheck, X } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
@@ -9,17 +9,56 @@ import Simulador from '@/components/Simulador';
 import Dashboard from '@/pages/Dashboard';
 import { useApp } from '@/store/app';
 import { useNav } from '@/store/nav';
+import { useNuvem } from '@/store/nuvem';
+import { ModalNovaSenha } from '@/components/Conta';
 
-const Movimentacoes = lazy(() => import('@/pages/Movimentacoes'));
-const Faturas = lazy(() => import('@/pages/Faturas'));
-const Planejamento = lazy(() => import('@/pages/Planejamento'));
-const Investimentos = lazy(() => import('@/pages/Investimentos'));
-const Assistente = lazy(() => import('@/pages/Assistente'));
-const Configuracoes = lazy(() => import('@/pages/Configuracoes'));
+const telas = {
+  movimentacoes: () => import('@/pages/Movimentacoes'),
+  faturas: () => import('@/pages/Faturas'),
+  planejamento: () => import('@/pages/Planejamento'),
+  investimentos: () => import('@/pages/Investimentos'),
+  assistente: () => import('@/pages/Assistente'),
+  configuracoes: () => import('@/pages/Configuracoes'),
+};
+const Movimentacoes = lazy(telas.movimentacoes);
+const Faturas = lazy(telas.faturas);
+const Planejamento = lazy(telas.planejamento);
+const Investimentos = lazy(telas.investimentos);
+const Assistente = lazy(telas.assistente);
+const Configuracoes = lazy(telas.configuracoes);
+
+/** Se uma tela não carregar (ex.: sem internet e ainda não baixada), mostra um aviso em vez de quebrar o app. */
+class LimiteDeErro extends Component<{ children: ReactNode; chave: string }, { erro: boolean }> {
+  state = { erro: false };
+  static getDerivedStateFromError() { return { erro: true }; }
+  componentDidUpdate(anterior: { chave: string }) {
+    if (anterior.chave !== this.props.chave && this.state.erro) this.setState({ erro: false });
+  }
+  render() {
+    if (!this.state.erro) return this.props.children;
+    return (
+      <Card className="p-6 text-center">
+        <AlertTriangle size={22} className="mx-auto text-laranja" />
+        <p className="mt-3 text-[14px] font-semibold text-txt">Não foi possível abrir esta tela</p>
+        <p className="mx-auto mt-1 max-w-sm text-[12.5px] text-txt2">
+          Verifique a conexão com a internet. Seus dados continuam salvos neste aparelho.
+        </p>
+        <button type="button" className="btn-primary mt-4" onClick={() => window.location.reload()}>Tentar de novo</button>
+      </Card>
+    );
+  }
+}
 
 /** Acesso aberto: não há login. O app abre direto no dashboard. */
 export default function App() {
   const { rota, modal, fechar } = useNav();
+
+  // Baixa as demais telas em segundo plano para que funcionem mesmo se a conexão cair depois
+  useEffect(() => {
+    const carregar = () => Object.values(telas).forEach((t) => void t().catch(() => {}));
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
+    if (w.requestIdleCallback) w.requestIdleCallback(carregar); else window.setTimeout(carregar, 1500);
+  }, []);
 
   return (
     <div className="relative z-10 min-h-screen">
@@ -30,6 +69,7 @@ export default function App() {
           <Topbar />
           <Faixas />
           <main key={rota} className="animate-fadeUp">
+            <LimiteDeErro chave={rota}>
             <Suspense fallback={<Card className="p-5"><Carregando linhas={4} altura={72} /></Card>}>
               {rota === 'inicio' && <Dashboard />}
               {rota === 'movimentacoes' && <Movimentacoes />}
@@ -39,6 +79,7 @@ export default function App() {
               {rota === 'assistente' && <Assistente />}
               {rota === 'configuracoes' && <Configuracoes />}
             </Suspense>
+            </LimiteDeErro>
           </main>
         </div>
       </div>
@@ -60,6 +101,7 @@ export default function App() {
         <Simulador compacto />
       </Modal>
 
+      <ModalNovaSenha />
       <Avisos />
     </div>
   );
@@ -69,6 +111,7 @@ export default function App() {
 function Faixas() {
   const { estado, dispatch, avisar, temDemo, persistencia, erroPersistencia } = useApp();
   const { ir } = useNav();
+  const { usuario } = useNuvem();
 
   return (
     <div className="mb-4 space-y-2 empty:mb-0">
@@ -82,7 +125,7 @@ function Faixas() {
         </div>
       )}
 
-      {!estado.prefs.avisoPrivacidadeVisto && (
+      {!estado.prefs.avisoPrivacidadeVisto && !usuario && (
         <div className="flex items-start gap-3 rounded-xl border border-roxo/35 bg-roxo/[0.08] px-4 py-3">
           <ShieldCheck size={17} className="mt-0.5 shrink-0 text-roxo-luz" />
           <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-txt2">

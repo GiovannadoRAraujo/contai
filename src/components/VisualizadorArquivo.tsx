@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Download } from 'lucide-react';
 import { Carregando } from './ui';
 import * as db from '@/lib/db';
+import { baixarArquivoDaNuvem } from '@/lib/nuvem/cliente';
 
 /**
  * Pré-visualização de um documento: imagem direta, ou PDF renderizado página a
@@ -20,8 +21,13 @@ export default function VisualizadorArquivo({
     let objUrl: string | null = null;
     (async () => {
       try {
-        const blob = arquivo ?? (documentoId ? await db.lerArquivo(documentoId) : undefined);
-        if (!blob) throw new Error('O arquivo não está mais guardado neste navegador.');
+        let blob = arquivo ?? (documentoId ? await db.lerArquivo(documentoId) : undefined);
+        // Enviado por outro aparelho: busca na conta e guarda uma cópia local
+        if (!blob && documentoId) {
+          blob = await baixarArquivoDaNuvem(documentoId);
+          if (blob) await db.salvarArquivo(documentoId, blob);
+        }
+        if (!blob) throw new Error('O arquivo não está guardado neste navegador nem na sua conta.');
         objUrl = URL.createObjectURL(blob);
         if (!vivo) return;
         setUrl(objUrl);
